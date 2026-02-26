@@ -88,7 +88,36 @@ function generateNodeConfig(node, authUrl, options = {}) {
         };
     }
     
+    applyOutboundsAndAcl(config, node);
+    
     return yaml.stringify(config);
+}
+
+/**
+ * Apply outbounds and ACL rules from node settings to config object
+ * @param {Object} config - Hysteria config object (mutated in place)
+ * @param {Object} node - Node with outbounds and aclRules fields
+ */
+function applyOutboundsAndAcl(config, node) {
+    const customOutbounds = node.outbounds || [];
+    const customAclRules = node.aclRules || [];
+    
+    if (customOutbounds.length > 0) {
+        config.outbounds = customOutbounds.map(ob => {
+            const entry = { name: ob.name, type: ob.type };
+            if (ob.type === 'socks5' || ob.type === 'http') {
+                const proxyConfig = { addr: ob.addr };
+                if (ob.username) proxyConfig.username = ob.username;
+                if (ob.password) proxyConfig.password = ob.password;
+                entry[ob.type] = proxyConfig;
+            }
+            return entry;
+        });
+    }
+    
+    if (customAclRules.length > 0) {
+        config.acl = { inline: customAclRules };
+    }
 }
 
 /**
@@ -162,6 +191,8 @@ function generateNodeConfigACME(node, authUrl, domain, email, options = {}) {
         };
     }
     
+    applyOutboundsAndAcl(config, node);
+    
     return yaml.stringify(config);
 }
 
@@ -189,4 +220,5 @@ module.exports = {
     generateNodeConfig,
     generateNodeConfigACME,
     generateSystemdService,
+    applyOutboundsAndAcl,
 };

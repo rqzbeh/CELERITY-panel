@@ -11,6 +11,14 @@ const portConfigSchema = new mongoose.Schema({
     enabled: { type: Boolean, default: true },
 }, { _id: false });
 
+const outboundSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    type: { type: String, enum: ['direct', 'block', 'socks5', 'http'], required: true },
+    addr: { type: String, default: '' },
+    username: { type: String, default: '' },
+    password: { type: String, default: '' },
+}, { _id: false });
+
 const hyNodeSchema = new mongoose.Schema({
     name: { type: String, required: true },
     flag: { type: String, default: '' },
@@ -40,6 +48,9 @@ const hyNodeSchema = new mongoose.Schema({
         cert: { type: String, default: '/etc/hysteria/cert.pem' },
         key: { type: String, default: '/etc/hysteria/key.pem' },
     },
+    
+    outbounds: { type: [outboundSchema], default: [] },
+    aclRules: { type: [String], default: [] },
     
     active: { type: Boolean, default: true },
     status: { type: String, enum: ['online', 'offline', 'error', 'syncing'], default: 'offline' },

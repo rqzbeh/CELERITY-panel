@@ -7,91 +7,7 @@ const logger = require('../utils/logger');
 const config = require('../../config');
 const cryptoService = require('./cryptoService');
 const Settings = require('../models/settingsModel');
-
-/**
- * Generate Hysteria config for node
- * 
- * @param {Object} node - Node configuration
- * @param {string} authUrl - Auth API URL
- * @param {Object} options - Additional options
- * @param {boolean} options.authInsecure - Allow self-signed certs for auth API (default: true)
- * 
- * SNI logic:
- * - If domain is set: ACME certificate, SNI must match domain (sniGuard: dns-san by default)
- * - If no domain (self-signed): can use custom SNI with sniGuard: disable
- */
-function generateHysteriaConfig(node, authUrl, options = {}) {
-    const { authInsecure = true } = options;
-    
-    let tlsSection;
-    
-    if (node.domain) {
-        // ACME - SNI must match domain, custom SNI won't work here
-        tlsSection = `# ACME (Let's Encrypt)
-acme:
-  domains:
-    - ${node.domain}
-  email: admin@${node.domain}
-  dir: /etc/hysteria/acme
-  listenHost: 0.0.0.0`;
-    } else {
-        // Self-signed certificate
-        // If custom SNI is set, disable sniGuard to allow domain fronting
-        const sniGuardLine = node.sni ? '\n  sniGuard: disable  # Allow custom SNI from clients' : '';
-        tlsSection = `# Self-signed certificate
-tls:
-  cert: /etc/hysteria/cert.pem
-  key: /etc/hysteria/key.pem${sniGuardLine}`;
-    }
-
-    return `# Hysteria 2 Config - Auto-generated
-# Node: ${node.name}
-# Generated: ${new Date().toISOString()}
-
-listen: :${node.port || 443}
-
-${tlsSection}
-
-sniff:
-  enable: true
-  timeout: 2s
-  rewriteDomain: false
-  tcpPorts: 80,443,8000-9000
-  udpPorts: 443,80,53
-
-quic:
-  initStreamReceiveWindow: 8388608
-  maxStreamReceiveWindow: 8388608
-  initConnReceiveWindow: 20971520
-  maxConnReceiveWindow: 20971520
-  maxIdleTimeout: 60s
-  maxIncomingStreams: 256
-
-auth:
-  type: http
-  http:
-    url: ${authUrl}
-    insecure: ${authInsecure}  # ${authInsecure ? 'Allow' : 'Reject'} self-signed certs for auth API
-
-ignoreClientBandwidth: false
-
-masquerade:
-  type: string
-  string:
-    content: "Service Unavailable"
-    headers:
-      Content-Type: text/plain
-    statusCode: 503
-
-acl:
-  inline:
-    - reject(geoip:cn)
-
-${node.statsSecret ? `trafficStats:
-  listen: :${node.statsPort || 9999}
-  secret: ${node.statsSecret}` : ''}
-`;
-}
+const configGenerator = require('./configGenerator');
 
 const INSTALL_SCRIPT = `#!/bin/bash
 set -e
@@ -391,7 +307,7 @@ echo "Note: Make sure DNS for ${node.domain} points to this server's IP!"
         }
         
         log('Uploading config...');
-        const hysteriaConfig = generateHysteriaConfig(node, authUrl, { authInsecure });
+        const hysteriaConfig = configGenerator.generateNodeConfig(node, authUrl, { authInsecure });
         await uploadFile(conn, hysteriaConfig, '/etc/hysteria/config.yaml');
         log('Config uploaded to /etc/hysteria/config.yaml');
         logs.push('--- Config content ---');
@@ -508,7 +424,6 @@ module.exports = {
     setupNode,
     checkNodeStatus,
     getNodeLogs,
-    generateHysteriaConfig,
     connectSSH,
     execSSH,
     uploadFile,

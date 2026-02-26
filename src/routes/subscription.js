@@ -20,8 +20,8 @@ const { getNodesByGroups, getSettings } = require('../utils/helpers');
 
 function detectFormat(userAgent) {
     const ua = (userAgent || '').toLowerCase();
-    // Shadowrocket лучше работает с base64 URI list
-    if (/shadowrocket/.test(ua)) return 'shadowrocket';
+    // Shadowrocket и Xray-based клиенты (Happ) ожидают base64-encoded URI list
+    if (/shadowrocket|happ/.test(ua)) return 'shadowrocket';
     if (/clash|stash|surge|loon/.test(ua)) return 'clash';
     // sing-box based clients: Hiddify, NekoBox, SFI/SFA/SFM/SFT, Karing
     if (/hiddify|sing-?box|nekobox|neko|sfi|sfa|sfm|sft|karing|hiddifynext/.test(ua)) return 'singbox';
@@ -522,6 +522,7 @@ router.get('/files/:token', async (req, res) => {
         // Для приложений — определяем формат и кэшируем
         if (!format) {
             format = detectFormat(userAgent);
+            logger.debug(`[Sub] UA: "${userAgent}" → format: ${format}`);
         }
         
         // Проверяем кэш

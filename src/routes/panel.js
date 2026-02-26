@@ -1352,6 +1352,86 @@ router.post('/restore', requireAuth, backupUpload.single('backup'), async (req, 
     }
 });
 
+// ==================== OUTBOUNDS ====================
+
+// GET /panel/nodes/:id/outbounds - Управление outbound-ами ноды
+router.get('/nodes/:id/outbounds', requireAuth, async (req, res) => {
+    try {
+        const node = await HyNode.findById(req.params.id);
+        
+        if (!node) {
+            return res.redirect('/panel/nodes');
+        }
+        
+        render(res, 'node-outbounds', {
+            title: `Outbounds: ${node.name}`,
+            page: 'nodes',
+            node,
+            message: req.query.message || null,
+            error: req.query.error || null,
+        });
+    } catch (error) {
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// POST /panel/nodes/:id/outbounds - Сохранить outbounds и ACL правила
+router.post('/nodes/:id/outbounds', requireAuth, async (req, res) => {
+    try {
+        const node = await HyNode.findById(req.params.id);
+        
+        if (!node) {
+            return res.redirect('/panel/nodes');
+        }
+        
+        // Парсим outbounds из form-data
+        // Формат: outbound[0][name], outbound[0][type], outbound[0][addr], ...
+        const outbounds = [];
+        const rawBody = req.body;
+        
+        if (rawBody.outbound_name) {
+            const names = Array.isArray(rawBody.outbound_name) ? rawBody.outbound_name : [rawBody.outbound_name];
+            const types = Array.isArray(rawBody.outbound_type) ? rawBody.outbound_type : [rawBody.outbound_type];
+            const addrs = Array.isArray(rawBody.outbound_addr) ? rawBody.outbound_addr : [rawBody.outbound_addr || ''];
+            const usernames = Array.isArray(rawBody.outbound_username) ? rawBody.outbound_username : [rawBody.outbound_username || ''];
+            const passwords = Array.isArray(rawBody.outbound_password) ? rawBody.outbound_password : [rawBody.outbound_password || ''];
+            
+            for (let i = 0; i < names.length; i++) {
+                const name = (names[i] || '').trim();
+                const type = (types[i] || '').trim();
+                
+                if (!name || !type) continue;
+                if (!['direct', 'block', 'socks5', 'http'].includes(type)) continue;
+                
+                outbounds.push({
+                    name,
+                    type,
+                    addr: (addrs[i] || '').trim(),
+                    username: (usernames[i] || '').trim(),
+                    password: (passwords[i] || '').trim(),
+                });
+            }
+        }
+        
+        // Парсим ACL правила (одна строка = одно правило)
+        const aclRaw = (rawBody.aclRules || '').trim();
+        const aclRules = aclRaw
+            ? aclRaw.split('\n').map(r => r.trim()).filter(Boolean)
+            : [];
+        
+        await HyNode.findByIdAndUpdate(req.params.id, {
+            $set: { outbounds, aclRules },
+        });
+        
+        logger.info(`[Panel] Outbounds updated for node: ${node.name} (${outbounds.length} outbounds, ${aclRules.length} ACL rules)`);
+        
+        res.redirect(`/panel/nodes/${req.params.id}/outbounds?message=` + encodeURIComponent('Outbounds сохранены'));
+    } catch (error) {
+        logger.error('[Panel] Outbounds save error:', error.message);
+        res.redirect(`/panel/nodes/${req.params.id}/outbounds?error=` + encodeURIComponent('Ошибка: ' + error.message));
+    }
+});
+
 // GET /panel/nodes/:id/terminal - SSH терминал
 router.get('/nodes/:id/terminal', requireAuth, async (req, res) => {
     try {
