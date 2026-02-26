@@ -20,8 +20,10 @@ const { getNodesByGroups, getSettings } = require('../utils/helpers');
 
 function detectFormat(userAgent) {
     const ua = (userAgent || '').toLowerCase();
-    // Shadowrocket и Xray-based клиенты (Happ) ожидают base64-encoded URI list
-    if (/shadowrocket|happ/.test(ua)) return 'shadowrocket';
+    // Shadowrocket ожидает base64-encoded URI list
+    if (/shadowrocket/.test(ua)) return 'shadowrocket';
+    // Happ (Xray-core) ожидает plain URI list
+    if (/happ/.test(ua)) return 'uri';
     if (/clash|stash|surge|loon/.test(ua)) return 'clash';
     // sing-box based clients: Hiddify, NekoBox, SFI/SFA/SFM/SFT, Karing
     if (/hiddify|sing-?box|nekobox|neko|sfi|sfa|sfm|sft|karing|hiddifynext/.test(ua)) return 'singbox';
