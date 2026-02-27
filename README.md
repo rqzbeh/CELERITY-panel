@@ -25,20 +25,20 @@
 curl -fsSL https://get.docker.com | sh
 ```
 
-**2. Deploy panel (Docker Hub):**
+**2. Deploy panel (Docker Hub - recommended):**
 ```bash
 mkdir hysteria-panel && cd hysteria-panel
 
 # Download required files
-curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker-compose.hub.yml
 curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker.env.example
 
 cp docker.env.example .env
 nano .env  # Set your domain, email, and secrets
-docker compose up -d
+docker compose -f docker-compose.hub.yml up -d
 ```
 
-**Alternative: Build from source**
+**Alternative: Build from source** (for development or customization)
 ```bash
 git clone https://github.com/ClickDevTech/hysteria-panel.git
 cd hysteria-panel
@@ -310,7 +310,30 @@ Leave the events list empty to receive **all** events.
 
 ## 🔧 Node Setup
 
-### Automatic (Recommended)
+### Understanding Node Configuration
+
+Before adding a node, understand these key concepts:
+
+#### Ports
+- **Main port (443)** — The port Hysteria listens on. Use 443 for best compatibility (often allowed through firewalls)
+- **Port hopping range (20000-50000)** — Additional UDP ports that redirect to the main port. Helps bypass QoS/throttling
+- **Stats port (9999)** — Internal port for collecting traffic statistics from the node
+
+#### Domain vs SNI
+
+| Field | Purpose | Example |
+|-------|---------|---------|
+| **Domain** | Used for ACME/Let's Encrypt certificates. Must point to the node's IP | `de1.example.com` → `1.2.3.4` |
+| **SNI** | What clients show during TLS handshake (for domain fronting). Can be any domain | `www.google.com` or `bing.com` |
+
+**Common scenarios:**
+1. **Simple setup**: Set `domain` to a subdomain pointing to your node (e.g., `node1.example.com`). Leave `SNI` empty.
+2. **Domain fronting**: Set `domain` for certificates, set `SNI` to a popular domain (e.g., `www.bing.com`) to disguise traffic.
+3. **Same VPS for panel and node**: Use different subdomains (e.g., `panel.example.com` for panel, `node.example.com` for node).
+
+> **Note:** The panel domain and node domain(s) should be different subdomains, but can point to the same IP if running on the same VPS.
+
+### Automatic Setup (Recommended)
 
 1. Add node in panel (IP, SSH credentials)
 2. Click "⚙️ Auto Setup"
@@ -321,7 +344,7 @@ Leave the events list empty to receive **all** events.
    - Open firewall ports
    - Start service
 
-### Manual
+### Manual Setup
 
 ```bash
 # Install Hysteria
@@ -331,8 +354,8 @@ bash <(curl -fsSL https://get.hy2.sh/)
 listen: :443
 
 acme:
-  domains: [your-domain.com]
-  email: acme@your-domain.com
+  domains: [node1.example.com]
+  email: admin@example.com
 
 auth:
   type: http
@@ -355,9 +378,27 @@ masquerade:
 # Start
 systemctl enable --now hysteria-server
 
-# Port hopping
+# Port hopping (redirect 20000-50000 to 443)
 iptables -t nat -A PREROUTING -p udp --dport 20000:50000 -j REDIRECT --to-port 443
 ```
+
+### Single VPS Setup (Panel + Node)
+
+You can run both the panel and a Hysteria node on the same VPS:
+
+1. **DNS Setup:**
+   - `panel.example.com` → Your VPS IP
+   - `node.example.com` → Same VPS IP
+
+2. **Panel uses ports:** 80, 443 (TCP for HTTPS)
+3. **Node uses ports:** 443 (UDP for Hysteria), 20000-50000 (UDP for port hopping)
+
+Since panel uses TCP and node uses UDP on port 443, they don't conflict.
+
+4. Add the node in the panel with:
+   - IP: Your VPS IP (or `127.0.0.1` if panel accesses node locally)
+   - Domain: `node.example.com`
+   - Port: 443
 
 ---
 

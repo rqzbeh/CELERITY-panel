@@ -256,13 +256,14 @@ async function deleteNode(id) {
     
     const res = await fetch(`/api/nodes/${id}`, {
         method: 'DELETE',
-        headers: { 'X-API-Key': window.API_KEY }
+        credentials: 'include'
     });
     
     if (res.ok) {
         location.reload();
     } else {
-        showToast(i18n.deleteError, 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || i18n.deleteError, 'error');
     }
 }
 

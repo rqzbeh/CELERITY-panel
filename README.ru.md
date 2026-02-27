@@ -25,20 +25,20 @@
 curl -fsSL https://get.docker.com | sh
 ```
 
-**2. Разверните панель (Docker Hub):**
+**2. Разверните панель (Docker Hub — рекомендуется):**
 ```bash
 mkdir hysteria-panel && cd hysteria-panel
 
 # Скачать необходимые файлы
-curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker-compose.hub.yml
 curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker.env.example
 
 cp docker.env.example .env
 nano .env  # Укажите домен, email и секреты
-docker compose up -d
+docker compose -f docker-compose.hub.yml up -d
 ```
 
-**Альтернатива: сборка из исходников**
+**Альтернатива: сборка из исходников** (для разработки или кастомизации)
 ```bash
 git clone https://github.com/ClickDevTech/hysteria-panel.git
 cd hysteria-panel
@@ -310,7 +310,30 @@ const expected = 'sha256=' + crypto
 
 ## 🔧 Настройка нод
 
-### Автоматическая (рекомендуется)
+### Понимание конфигурации ноды
+
+Перед добавлением ноды важно понять ключевые концепции:
+
+#### Порты
+- **Основной порт (443)** — порт, на котором слушает Hysteria. Используйте 443 для лучшей совместимости (часто разрешён в файрволах)
+- **Диапазон портов (20000-50000)** — дополнительные UDP порты, которые перенаправляются на основной. Помогает обходить QoS/троттлинг
+- **Порт статистики (9999)** — внутренний порт для сбора статистики трафика с ноды
+
+#### Домен и SNI — в чём разница?
+
+| Поле | Назначение | Пример |
+|------|------------|--------|
+| **Domain** | Используется для ACME/Let's Encrypt сертификатов. Должен указывать на IP ноды | `de1.example.com` → `1.2.3.4` |
+| **SNI** | Что клиенты показывают при TLS handshake (domain fronting). Может быть любым доменом | `www.google.com` или `bing.com` |
+
+**Типичные сценарии:**
+1. **Простая настройка**: Укажите в `Domain` поддомен, указывающий на вашу ноду (напр., `node1.example.com`). `SNI` оставьте пустым.
+2. **Domain fronting**: Укажите `Domain` для сертификатов, а `SNI` — популярный домен (напр., `www.bing.com`) для маскировки трафика.
+3. **Панель и нода на одном VPS**: Используйте разные поддомены (напр., `panel.example.com` для панели, `node.example.com` для ноды).
+
+> **Примечание:** Домен панели и домен(ы) нод должны быть разными поддоменами, но могут указывать на один IP, если они на одном VPS.
+
+### Автоматическая настройка (рекомендуется)
 
 1. Добавьте ноду в панели (IP, SSH доступ)
 2. Нажмите "⚙️ Автонастройка"
@@ -321,7 +344,7 @@ const expected = 'sha256=' + crypto
    - Откроет порты в firewall
    - Запустит сервис
 
-### Ручная
+### Ручная настройка
 
 ```bash
 # Установка Hysteria
@@ -331,8 +354,8 @@ bash <(curl -fsSL https://get.hy2.sh/)
 listen: :443
 
 acme:
-  domains: [ваш-домен.com]
-  email: acme@ваш-домен.com
+  domains: [node1.example.com]
+  email: admin@example.com
 
 auth:
   type: http
@@ -355,9 +378,27 @@ masquerade:
 # Запуск
 systemctl enable --now hysteria-server
 
-# Port hopping
+# Port hopping (перенаправление 20000-50000 на 443)
 iptables -t nat -A PREROUTING -p udp --dport 20000:50000 -j REDIRECT --to-port 443
 ```
+
+### Панель и нода на одном VPS
+
+Можно запустить панель и ноду Hysteria на одном VPS:
+
+1. **Настройка DNS:**
+   - `panel.example.com` → IP вашего VPS
+   - `node.example.com` → тот же IP
+
+2. **Панель использует порты:** 80, 443 (TCP для HTTPS)
+3. **Нода использует порты:** 443 (UDP для Hysteria), 20000-50000 (UDP для port hopping)
+
+Поскольку панель использует TCP, а нода UDP на порту 443, они не конфликтуют.
+
+4. Добавьте ноду в панели с параметрами:
+   - IP: IP вашего VPS (или `127.0.0.1` если панель обращается к ноде локально)
+   - Domain: `node.example.com`
+   - Port: 443
 
 ---
 

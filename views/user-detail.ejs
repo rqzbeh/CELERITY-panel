@@ -158,10 +158,13 @@ const i18n = {
 async function toggleUser(enabled) {
     const res = await fetch(`/api/users/${userId}/${enabled ? 'enable' : 'disable'}`, {
         method: 'POST',
-        headers: { 'X-API-Key': window.API_KEY }
+        credentials: 'include'
     });
     if (res.ok) location.reload();
-    else alert(i18n.error);
+    else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || i18n.error);
+    }
 }
 
 async function deleteUser() {
@@ -169,10 +172,13 @@ async function deleteUser() {
     
     const res = await fetch(`/api/users/${userId}`, {
         method: 'DELETE',
-        headers: { 'X-API-Key': window.API_KEY }
+        credentials: 'include'
     });
     if (res.ok) location.href = '/panel/users';
-    else alert(i18n.error);
+    else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || i18n.error);
+    }
 }
 
 function copySubscription() {

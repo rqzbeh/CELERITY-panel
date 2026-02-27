@@ -1,0 +1,55 @@
+# C³ CELERITY - Quick Start (Docker Hub)
+# Use this file for quick deployment without building from source
+# Run: docker compose -f docker-compose.hub.yml up -d
+
+services:
+  # Redis - caching
+  redis:
+    image: redis:7-alpine
+    container_name: hysteria-redis
+    restart: always
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save ""
+    networks:
+      - hysteria-net
+
+  # MongoDB
+  mongo:
+    image: mongo:7
+    container_name: hysteria-mongo
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: hysteria
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-hysteria}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    networks:
+      - hysteria-net
+
+  # Hysteria Backend (pre-built image from Docker Hub)
+  backend:
+    image: clickdevtech/hysteria-panel:latest
+    container_name: hysteria-backend
+    restart: always
+    depends_on:
+      - mongo
+      - redis
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./logs:/app/logs
+      - ./greenlock.d:/app/greenlock.d
+      - ./backups:/app/backups
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://${MONGO_USER:-hysteria}:${MONGO_PASSWORD}@mongo:27017/hysteria?authSource=admin
+      REDIS_URL: redis://redis:6379
+
+networks:
+  hysteria-net:
+    driver: bridge
+
+volumes:
+  mongo_data:
