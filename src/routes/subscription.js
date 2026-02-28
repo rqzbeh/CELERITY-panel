@@ -652,6 +652,14 @@ function sendCachedSubscription(res, data, format, userAgent) {
             break;
     }
     
+    // Для URI формата - минимум заголовков (как в Blitz)
+    // Метаданные уже в теле как комментарии //
+    if (format === 'uri' || format === 'raw' || format === 'shadowrocket') {
+        res.set('Content-Type', 'text/plain; charset=utf-8');
+        return res.send(data.content);
+    }
+    
+    // Для остальных форматов - полные заголовки
     res.set({
         'Content-Type': `${contentType}; charset=utf-8`,
         'Content-Disposition': `attachment; filename="${data.username}"`,
