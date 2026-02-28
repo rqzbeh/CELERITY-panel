@@ -24,9 +24,10 @@ function detectFormat(userAgent) {
     if (/shadowrocket/.test(ua)) return 'shadowrocket';
     // Happ (Xray-core) ожидает plain URI list
     if (/happ/.test(ua)) return 'uri';
-    if (/clash|stash|surge|loon/.test(ua)) return 'clash';
-    // sing-box based clients: Hiddify, NekoBox, SFI/SFA/SFM/SFT, Karing
+    // sing-box based clients — проверяем ДО clash, т.к. Hiddify UA содержит "ClashMeta"
+    // Пример: "HiddifyNext/4.0.5 (android) like ClashMeta v2ray sing-box"
     if (/hiddify|hiddifynext|sing-?box|nekobox|nekoray|neko|sfi|sfa|sfm|sft|karing/.test(ua)) return 'singbox';
+    if (/clash|stash|surge|loon/.test(ua)) return 'clash';
     return 'uri';
 }
 
