@@ -211,7 +211,8 @@ function generateURI(user, node, config) {
     if (config.portRange) params.push(`mport=${config.portRange}`);
     
     const name = `${node.flag || ''} ${node.name} ${config.name}`.trim();
-    const uri = `hysteria2://${auth}@${config.host}:${config.port}?${params.join('&')}#${encodeURIComponent(name)}`;
+    // hy2:// - короткий формат, лучше совместимость (Happ iOS)
+    const uri = `hy2://${auth}@${config.host}:${config.port}?${params.join('&')}#${encodeURIComponent(name)}`;
     return uri;
 }
 
