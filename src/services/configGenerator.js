@@ -635,22 +635,11 @@ function generateRelayConfig(upstreamLink, upstreamPortal, downstreamLinks) {
         ],
         routing: {
             domainStrategy: 'IPIfNonMatch',
-            rules: [
-                {
-                    type: 'field',
-                    domain: [`full:${upDomain}`],
-                    outboundTag: 'tunnel-up',
-                },
-                {
-                    type: 'field',
-                    ip: ['geoip:private'],
-                    outboundTag: 'blackhole',
-                },
-            ],
+            rules: [], // Rules will be added in correct order below
         },
     };
 
-    // Add portal entries and inbounds for each downstream link
+    // FIRST: Add connector rules for each downstream link (must be checked BEFORE tunnel-up rule)
     for (const downLink of downstreamLinks) {
         const downLinkId = String(downLink._id).slice(-8);
         const downDomain = downLink.tunnelDomain || 'reverse.tunnel.internal';
@@ -684,7 +673,14 @@ function generateRelayConfig(upstreamLink, upstreamPortal, downstreamLinks) {
         });
     }
 
-    // KEY: route traffic from upstream bridge to downstream portal(s)
+    // SECOND: Add tunnel-up rule for upstream bridge handshake (after connector rules)
+    config.routing.rules.push({
+        type: 'field',
+        domain: [`full:${upDomain}`],
+        outboundTag: 'tunnel-up',
+    });
+
+    // THIRD: Route traffic from upstream bridge to downstream portal(s)
     // If multiple downstream portals, Xray's built-in mux balancing handles it
     if (downstreamLinks.length > 0) {
         const firstPortalTag = `portal-down-${String(downstreamLinks[0]._id).slice(-8)}`;
@@ -694,6 +690,13 @@ function generateRelayConfig(upstreamLink, upstreamPortal, downstreamLinks) {
             outboundTag: firstPortalTag,
         });
     }
+
+    // LAST: Blackhole for private IPs
+    config.routing.rules.push({
+        type: 'field',
+        ip: ['geoip:private'],
+        outboundTag: 'blackhole',
+    });
 
     return JSON.stringify(config, null, 2);
 }
