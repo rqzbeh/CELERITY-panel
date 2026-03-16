@@ -493,12 +493,15 @@ function applyReversePortal(config, portalLinks, clientInboundTag) {
         config.routing = config.routing || { rules: [] };
         config.routing.rules = config.routing.rules || [];
 
+        // Rule to link connector inbound with portal (required for reverse tunnel handshake)
         config.routing.rules.push({
             type: 'field',
+            inboundTag: [connectorTag],
             domain: [`full:${link.tunnelDomain || 'reverse.tunnel.internal'}`],
             outboundTag: portalTag,
         });
 
+        // Rule to route all client traffic through the portal to Bridge
         if (clientInboundTag) {
             config.routing.rules.push({
                 type: 'field',
