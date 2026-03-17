@@ -1,175 +1,298 @@
 /**
- * MCP Router — Model Context Protocol endpoint
+ * MCP Router — Model Context Protocol endpoint (MCP spec 2024-11-05)
  *
- * POST /api/mcp
- *   Body: { method: 'tools/list' | 'tools/call', params?: { name, arguments } }
- *   Auth: Bearer <api_key> with mcp:enabled scope, or admin session
- *   Response: text/event-stream (SSE)
+ * Implements two transports:
  *
- * Supported methods:
- *   tools/list, tools/call
- *   prompts/list, prompts/get
+ * 1. Streamable HTTP (primary, what Cursor/Claude use by default)
+ *    POST /api/mcp
+ *    - Request:  JSON-RPC 2.0 { jsonrpc, id, method, params }
+ *    - Response: application/json for sync methods (initialize, ping)
+ *                text/event-stream for streaming methods (tools/call with long ops)
+ *    - Streaming SSE events use: event: message  data: <JSON-RPC response>
+ *    - Progress/log events use:  event: progress / event: log  (non-JSON-RPC)
  *
- * SSE Events:
- *   event: progress   data: { step?, total?, message }
- *   event: log        data: { type: stdout|stderr|info, text, sessionId? }
- *   event: result     data: { ...tool result }
- *   event: error      data: { error, code? }
+ * 2. Legacy SSE transport (fallback for older clients)
+ *    GET  /api/mcp/sse      — opens SSE stream, sends endpoint URL
+ *    POST /api/mcp/messages — receives JSON-RPC requests, responds via SSE stream
+ *
+ * Auth: Bearer <api_key> with mcp:enabled scope, or admin session cookie.
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const mcpService = require('../services/mcpService');
 const logger = require('../utils/logger');
 const { requireScope } = require('../middleware/auth');
 
-// All MCP requests require mcp:enabled scope (or admin session bypasses it)
+const SERVER_INFO = { name: 'hysteria-panel', version: '1.0.0' };
+const PROTOCOL_VERSION = '2024-11-05';
+const CAPABILITIES = { tools: {}, prompts: {} };
+
+// Active legacy-SSE sessions: sessionId -> res (the open SSE response)
+const sseSessions = new Map();
+
+// All MCP requests require mcp:enabled scope (admin session bypasses it)
 router.use(requireScope('mcp:enabled'));
 
-/**
- * Send an SSE event. Handles JSON serialisation and keeps the stream alive.
- */
-function sendEvent(res, event, data) {
-    if (res.writableEnded) return;
-    const payload = typeof data === 'string' ? data : JSON.stringify(data);
-    res.write(`event: ${event}\ndata: ${payload}\n\n`);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function jsonRpcOk(id, result) {
+    return { jsonrpc: '2.0', id: id ?? null, result };
 }
 
-/**
- * Setup SSE headers and heartbeat.
- * Returns a cleanup function.
- */
-function initSSE(req, res) {
+function jsonRpcErr(id, code, message) {
+    return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+}
+
+/** Write a JSON-RPC SSE message event */
+function sseMessage(res, payload) {
+    if (res.writableEnded) return;
+    res.write(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+/** Write a non-JSON-RPC progress or log event (for streaming tool ops) */
+function sseEvent(res, event, data) {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function initSSEHeaders(res) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Disable Nginx buffering
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
-
-    // Keep connection alive every 20 s
-    const heartbeat = setInterval(() => {
-        if (!res.writableEnded) {
-            res.write(': heartbeat\n\n');
-        } else {
-            clearInterval(heartbeat);
-        }
-    }, 20000);
-
-    req.on('close', () => clearInterval(heartbeat));
-
-    return () => clearInterval(heartbeat);
 }
 
+function startHeartbeat(req, res) {
+    const iv = setInterval(() => {
+        if (res.writableEnded) return clearInterval(iv);
+        res.write(': ping\n\n');
+    }, 20000);
+    req.on('close', () => clearInterval(iv));
+    return () => clearInterval(iv);
+}
+
+// ─── Core dispatcher ─────────────────────────────────────────────────────────
+
 /**
- * POST /api/mcp
+ * Dispatch a JSON-RPC request.
+ * @param {object}   rpc      - parsed JSON-RPC body
+ * @param {object}   apiKey   - req.apiKey or null (admin session)
+ * @param {Function} emitProg - (event, data) for progress/log events on SSE stream
+ * @returns {{ sync: boolean, result?: object, error?: object }}
  */
+async function dispatch(rpc, apiKey, emitProg) {
+    const { id, method, params = {} } = rpc;
+
+    // ── initialize ──────────────────────────────────────────────────────────
+    if (method === 'initialize') {
+        return {
+            sync: true,
+            result: jsonRpcOk(id, {
+                protocolVersion: PROTOCOL_VERSION,
+                capabilities: CAPABILITIES,
+                serverInfo: SERVER_INFO,
+            }),
+        };
+    }
+
+    // ── notifications/initialized (no response needed) ──────────────────────
+    if (method === 'notifications/initialized') {
+        return { sync: true, result: null }; // No response for notifications
+    }
+
+    // ── ping ─────────────────────────────────────────────────────────────────
+    if (method === 'ping') {
+        return { sync: true, result: jsonRpcOk(id, {}) };
+    }
+
+    // ── tools/list ───────────────────────────────────────────────────────────
+    if (method === 'tools/list') {
+        const tools = mcpService.listTools(apiKey);
+        return { sync: true, result: jsonRpcOk(id, { tools }) };
+    }
+
+    // ── tools/call ───────────────────────────────────────────────────────────
+    if (method === 'tools/call') {
+        const toolName = params.name;
+        const toolArgs = params.arguments || {};
+        if (!toolName) {
+            return { sync: true, result: jsonRpcErr(id, -32602, 'Missing params.name') };
+        }
+        try {
+            const toolResult = await mcpService.callTool(toolName, toolArgs, apiKey, emitProg);
+            if (toolResult && toolResult.error) {
+                // Soft error from handler (e.g. not found)
+                return {
+                    sync: false,
+                    result: jsonRpcOk(id, {
+                        content: [{ type: 'text', text: JSON.stringify(toolResult) }],
+                        isError: true,
+                    }),
+                };
+            }
+            return {
+                sync: false,
+                result: jsonRpcOk(id, {
+                    content: [{ type: 'text', text: JSON.stringify(toolResult) }],
+                }),
+            };
+        } catch (err) {
+            logger.warn(`[MCP] Tool error ${toolName}: ${err.message}`);
+            let msg = err.message;
+            if (err.name === 'ZodError') {
+                msg = 'Invalid arguments: ' + err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
+            }
+            return {
+                sync: false,
+                result: jsonRpcOk(id, {
+                    content: [{ type: 'text', text: msg }],
+                    isError: true,
+                }),
+            };
+        }
+    }
+
+    // ── prompts/list ─────────────────────────────────────────────────────────
+    if (method === 'prompts/list') {
+        const prompts = mcpService.listPrompts();
+        return { sync: true, result: jsonRpcOk(id, { prompts }) };
+    }
+
+    // ── prompts/get ──────────────────────────────────────────────────────────
+    if (method === 'prompts/get') {
+        if (!params?.name) {
+            return { sync: true, result: jsonRpcErr(id, -32602, 'Missing params.name') };
+        }
+        try {
+            const prompted = mcpService.getPrompt(params.name, params.arguments || {});
+            return { sync: true, result: jsonRpcOk(id, prompted) };
+        } catch (err) {
+            return { sync: true, result: jsonRpcErr(id, -32602, err.message) };
+        }
+    }
+
+    // ── Unknown method ───────────────────────────────────────────────────────
+    return {
+        sync: true,
+        result: jsonRpcErr(id, -32601, `Method not found: ${method}`),
+    };
+}
+
+// ─── 1. Streamable HTTP transport ─────────────────────────────────────────────
+
 router.post('/', async (req, res) => {
-    const cleanup = initSSE(req, res);
+    const rpc = req.body;
 
-    const emit = (event, data) => sendEvent(res, event, data);
+    if (!rpc || !rpc.method) {
+        return res.status(400).json(jsonRpcErr(null, -32600, 'Invalid Request: missing method'));
+    }
 
-    try {
-        const { method, params } = req.body || {};
+    const apiKey = req.apiKey || null;
+    const wantsSSE = req.headers.accept && req.headers.accept.includes('text/event-stream');
 
-        if (!method) {
-            emit('error', { error: 'Missing method field', code: 400 });
-            return res.end();
-        }
+    // For streaming calls, use SSE; for everything else plain JSON
+    const useSSE = wantsSSE || rpc.method === 'tools/call';
 
-        // ── tools/list ─────────────────────────────────────────────────────
-        if (method === 'tools/list') {
-            const apiKey = req.apiKey || null;
-            const tools = mcpService.listTools(apiKey);
-            emit('result', { tools });
-            return res.end();
-        }
+    if (useSSE) {
+        initSSEHeaders(res);
+        const stopHeartbeat = startHeartbeat(req, res);
 
-        // ── tools/call ─────────────────────────────────────────────────────
-        if (method === 'tools/call') {
-            if (!params?.name) {
-                emit('error', { error: 'Missing params.name', code: 400 });
-                return res.end();
+        const emitProg = (event, data) => sseEvent(res, event, data);
+
+        try {
+            const { result } = await dispatch(rpc, apiKey, emitProg);
+            if (result !== null) {
+                sseMessage(res, result);
             }
-
-            const toolName = params.name;
-            const toolArgs = params.arguments || {};
-            const apiKey = req.apiKey || null;
-
-            let result;
-            try {
-                result = await mcpService.callTool(toolName, toolArgs, apiKey, emit);
-            } catch (err) {
-                const code = err.code || 500;
-                logger.warn(`[MCP] Tool error ${toolName}: ${err.message}`);
-
-                // Zod validation errors get a 400 with details
-                if (err.name === 'ZodError') {
-                    const issues = err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
-                    emit('error', { error: `Invalid arguments: ${issues}`, code: 400 });
-                } else {
-                    emit('error', { error: err.message, code });
-                }
-                return res.end();
-            }
-
-            // If result contains an error field (soft errors from handlers), emit as error event
-            if (result && result.error) {
-                emit('error', { error: result.error, code: result.code || 400 });
-            } else {
-                emit('result', result);
-            }
-
-            return res.end();
-        }
-
-        // ── prompts/list ───────────────────────────────────────────────────
-        if (method === 'prompts/list') {
-            const prompts = mcpService.listPrompts();
-            emit('result', { prompts });
-            return res.end();
-        }
-
-        // ── prompts/get ────────────────────────────────────────────────────
-        if (method === 'prompts/get') {
-            if (!params?.name) {
-                emit('error', { error: 'Missing params.name', code: 400 });
-                return res.end();
-            }
-            try {
-                const result = mcpService.getPrompt(params.name, params.arguments || {});
-                emit('result', result);
-            } catch (err) {
-                emit('error', { error: err.message, code: err.code || 400 });
-            }
-            return res.end();
-        }
-
-        // ── Unknown method ─────────────────────────────────────────────────
-        emit('error', { error: `Unknown method: ${method}. Supported: tools/list, tools/call, prompts/list, prompts/get.`, code: 400 });
-        return res.end();
-
-    } catch (err) {
-        logger.error(`[MCP] Unhandled error: ${err.message}`);
-        if (!res.writableEnded) {
-            emit('error', { error: 'Internal server error', code: 500 });
+        } catch (err) {
+            logger.error(`[MCP] Dispatch error: ${err.message}`);
+            sseMessage(res, jsonRpcErr(rpc.id ?? null, -32603, 'Internal error'));
+        } finally {
+            stopHeartbeat();
             res.end();
         }
-    } finally {
-        cleanup();
+        return;
+    }
+
+    // Sync JSON response (initialize, ping, tools/list, prompts/list, etc.)
+    try {
+        const { result } = await dispatch(rpc, apiKey, () => {});
+        if (result === null) return res.status(202).end(); // notification
+        return res.json(result);
+    } catch (err) {
+        logger.error(`[MCP] Dispatch error: ${err.message}`);
+        return res.json(jsonRpcErr(rpc.id ?? null, -32603, 'Internal error'));
     }
 });
 
+// ─── 2. Legacy SSE transport ──────────────────────────────────────────────────
+
 /**
- * GET /api/mcp/tools — Lists available tools as JSON. Useful for quick inspection.
+ * GET /api/mcp/sse
+ * Opens the SSE channel and tells the client where to POST messages.
  */
-router.get('/tools', (req, res) => {
-    const tools = mcpService.listTools(req.apiKey || null);
-    res.json({ tools });
+router.get('/sse', (req, res) => {
+    const sessionId = crypto.randomUUID();
+    initSSEHeaders(res);
+    const stopHeartbeat = startHeartbeat(req, res);
+
+    sseSessions.set(sessionId, res);
+    logger.info(`[MCP] Legacy SSE session opened: ${sessionId}`);
+
+    // Tell client the messages endpoint
+    const base = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    res.write(`event: endpoint\ndata: ${JSON.stringify(`${base}/api/mcp/messages?sessionId=${sessionId}`)}\n\n`);
+
+    req.on('close', () => {
+        sseSessions.delete(sessionId);
+        stopHeartbeat();
+        logger.info(`[MCP] Legacy SSE session closed: ${sessionId}`);
+    });
 });
 
 /**
- * GET /api/mcp/prompts — Lists available prompts as JSON.
+ * POST /api/mcp/messages?sessionId=<id>
+ * Receives JSON-RPC from legacy SSE clients, sends response over the SSE stream.
  */
+router.post('/messages', async (req, res) => {
+    const { sessionId } = req.query;
+    const sseRes = sseSessions.get(sessionId);
+
+    if (!sseRes || sseRes.writableEnded) {
+        return res.status(400).json({ error: 'Session not found or closed' });
+    }
+
+    const rpc = req.body;
+    if (!rpc || !rpc.method) {
+        return res.status(400).json(jsonRpcErr(null, -32600, 'Invalid Request'));
+    }
+
+    // Acknowledge immediately
+    res.status(202).end();
+
+    const apiKey = req.apiKey || null;
+    const emitProg = (event, data) => sseEvent(sseRes, event, data);
+
+    try {
+        const { result } = await dispatch(rpc, apiKey, emitProg);
+        if (result !== null) {
+            sseMessage(sseRes, result);
+        }
+    } catch (err) {
+        logger.error(`[MCP] Legacy session error: ${err.message}`);
+        sseMessage(sseRes, jsonRpcErr(rpc.id ?? null, -32603, 'Internal error'));
+    }
+});
+
+// ─── Convenience JSON endpoints ───────────────────────────────────────────────
+
+router.get('/tools', (req, res) => {
+    res.json({ tools: mcpService.listTools(req.apiKey || null) });
+});
+
 router.get('/prompts', (req, res) => {
     res.json({ prompts: mcpService.listPrompts() });
 });
