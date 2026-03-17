@@ -33,6 +33,34 @@ function generateUuid() {
     return require('crypto').randomUUID();
 }
 
+/**
+ * Generate X25519 key pair for REALITY
+ * POST /cascade/generate-reality-keys
+ */
+router.post('/generate-reality-keys', requireScope('nodes:write'), async (req, res) => {
+    try {
+        const { generateKeyPairSync } = require('crypto');
+        const keyPair = generateKeyPairSync('x25519', {
+            publicKeyEncoding: { type: 'spki', format: 'der' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'der' },
+        });
+        
+        // Extract raw 32-byte keys from DER format
+        // X25519 public key: last 32 bytes of SPKI
+        // X25519 private key: last 32 bytes of PKCS8
+        const publicKeyRaw = keyPair.publicKey.slice(-32);
+        const privateKeyRaw = keyPair.privateKey.slice(-32);
+        
+        res.json({
+            privateKey: privateKeyRaw.toString('base64'),
+            publicKey: publicKeyRaw.toString('base64'),
+        });
+    } catch (error) {
+        logger.error(`[Cascade API] Generate REALITY keys error: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==================== LINKS CRUD ====================
 
 /**
@@ -171,6 +199,16 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             linkData.muxConcurrency = parseInt(muxConcurrency) || 8;
             linkData.muxXudpConcurrency = parseInt(muxXudpConcurrency) || 16;
             linkData.muxXudpProxyUDP443 = muxXudpProxyUDP443 || 'reject';
+        }
+
+        // Geo-routing settings
+        const { geoRouting } = req.body;
+        if (geoRouting?.enabled) {
+            linkData.geoRouting = {
+                enabled: true,
+                domains: Array.isArray(geoRouting.domains) ? geoRouting.domains : [],
+                geoip: Array.isArray(geoRouting.geoip) ? geoRouting.geoip : [],
+            };
         }
 
         const link = await CascadeLink.create(linkData);

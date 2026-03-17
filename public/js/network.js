@@ -614,15 +614,28 @@
             return;
         }
 
-        const html =
+        var modeIcon = d.mode === 'forward' ? 'ti-arrow-right' : 'ti-arrows-exchange';
+        var modeLabel = d.mode === 'forward' ? 'Forward Chain' : 'Reverse Proxy';
+        var secLabel = (d.tunnelSecurity || 'none').toUpperCase();
+        if (d.tunnelSecurity === 'reality') secLabel = '<span style="color:#22c55e">REALITY</span>';
+        
+        var features = [];
+        if (d.muxEnabled) features.push('<span class="link-badge mux">MUX</span>');
+        if (d.geoRoutingEnabled) features.push('<span class="link-badge geo">GEO</span>');
+        var featuresHtml = features.length > 0 ? '<div style="margin-top:6px">' + features.join(' ') + '</div>' : '';
+
+        var html =
             '<div class="info-grid">' +
             field(i18n.drawerStatus || 'Status',
                 '<div class="info-status ' + sc + '">\u25CF ' + (d.status || 'pending') + '</div>') +
-            field('ti-plug',           i18n.drawerTunnelPort        || 'Tunnel Port',         d.tunnelPort || '—') +
-            field('ti-arrows-exchange',i18n.drawerProtocolTransport || 'Protocol / Transport',
+            field(modeIcon, 'Mode', '<strong>' + modeLabel + '</strong>') +
+            field('ti-plug', i18n.drawerTunnelPort || 'Tunnel Port', d.tunnelPort || '—') +
+            field('ti-arrows-exchange', i18n.drawerProtocolTransport || 'Protocol / Transport',
                 (d.tunnelProtocol || 'vless').toUpperCase() + ' / ' + (d.tunnelTransport || 'tcp')) +
-            field('ti-clock',          i18n.drawerLatency           || 'Latency',
+            field('ti-shield-lock', 'Security', secLabel) +
+            field('ti-clock', i18n.drawerLatency || 'Latency',
                 d.latencyMs != null ? d.latencyMs + ' ms' : '—') +
+            featuresHtml +
             '</div>' +
             '<div class="info-actions">' +
             '<button class="btn btn-sm btn-success" id="btnDeploy" onclick="window._cascadeDeploy(\'' + lid + '\')">' +
@@ -692,20 +705,113 @@
             const err = '<option value="">' + (i18n.errorLoadingNodes || 'Error loading nodes') + '</option>';
             portalSelect.innerHTML = bridgeSelect.innerHTML = err;
         }
+        
+        // Reset form and initialize UI state
+        initModalFormListeners();
         modal.classList.add('active');
     }
 
     function closeModal() {
         document.getElementById('addLinkModal').classList.remove('active');
         document.getElementById('addLinkForm').reset();
+        // Reset conditional sections
+        document.getElementById('realitySettings').style.display = 'none';
+        document.getElementById('muxSettings').style.display = 'none';
+        document.getElementById('geoSettings').style.display = 'none';
+        // Reset mode selection
+        document.querySelectorAll('.mode-option').forEach(function(el) {
+            el.classList.remove('selected');
+        });
+        document.querySelector('.mode-option[data-mode="reverse"]').classList.add('selected');
+    }
+
+    function initModalFormListeners() {
+        // Mode selector
+        document.querySelectorAll('.mode-option').forEach(function(el) {
+            el.addEventListener('click', function() {
+                document.querySelectorAll('.mode-option').forEach(function(opt) {
+                    opt.classList.remove('selected');
+                });
+                el.classList.add('selected');
+                el.querySelector('input[type="radio"]').checked = true;
+            });
+        });
+
+        // Security selector (show/hide REALITY settings)
+        var securitySelect = document.getElementById('tunnelSecurity');
+        if (securitySelect) {
+            securitySelect.addEventListener('change', function() {
+                var realitySettings = document.getElementById('realitySettings');
+                if (realitySettings) {
+                    realitySettings.style.display = this.value === 'reality' ? 'block' : 'none';
+                }
+            });
+        }
+
+        // MUX toggle
+        var muxEnabled = document.getElementById('muxEnabled');
+        if (muxEnabled) {
+            muxEnabled.addEventListener('change', function() {
+                var muxSettings = document.getElementById('muxSettings');
+                if (muxSettings) {
+                    muxSettings.style.display = this.checked ? 'block' : 'none';
+                }
+            });
+        }
+
+        // Geo-routing toggle
+        var geoEnabled = document.getElementById('geoRoutingEnabled');
+        if (geoEnabled) {
+            geoEnabled.addEventListener('change', function() {
+                var geoSettings = document.getElementById('geoSettings');
+                if (geoSettings) {
+                    geoSettings.style.display = this.checked ? 'block' : 'none';
+                }
+            });
+        }
+
+        // Generate REALITY key pair button
+        var btnGenReality = document.getElementById('btnGenerateReality');
+        if (btnGenReality) {
+            btnGenReality.addEventListener('click', generateRealityKeyPair);
+        }
+    }
+
+    async function generateRealityKeyPair() {
+        var btn = document.getElementById('btnGenerateReality');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Generating...';
+
+        try {
+            // Call backend API to generate key pair
+            var res = await fetch('/api/cascade/generate-reality-keys', { method: 'POST' });
+            if (!res.ok) throw new Error('Failed to generate keys');
+            var keys = await res.json();
+            
+            var privateKeyInput = document.querySelector('input[name="realityPrivateKey"]');
+            var publicKeyInput = document.querySelector('input[name="realityPublicKey"]');
+            
+            if (privateKeyInput && keys.privateKey) privateKeyInput.value = keys.privateKey;
+            if (publicKeyInput && keys.publicKey) publicKeyInput.value = keys.publicKey;
+            
+            showToast('Key pair generated successfully');
+        } catch (err) {
+            showToast('Failed to generate keys: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ti ti-key"></i> Generate Key Pair';
+        }
     }
 
     async function onAddLinkSubmit(e) {
         e.preventDefault();
-        const form = e.target;
-        const btn  = form.querySelector('[type="submit"]');
-        const data = {
+        var form = e.target;
+        var btn  = form.querySelector('[type="submit"]');
+        
+        // Basic data
+        var data = {
             name:           form.name.value,
+            mode:           form.mode.value,
             portalNodeId:   form.portalNodeId.value,
             bridgeNodeId:   form.bridgeNodeId.value,
             tunnelPort:     parseInt(form.tunnelPort.value) || 10086,
@@ -713,7 +819,37 @@
             tunnelTransport:form.tunnelTransport.value,
             tunnelSecurity: form.tunnelSecurity.value,
             autoDeploy:     form.autoDeploy?.checked || false,
+            fallbackTag:    form.fallbackTag.value,
         };
+
+        // REALITY settings
+        if (data.tunnelSecurity === 'reality') {
+            data.realityDest = form.realityDest.value;
+            data.realitySni = form.realitySni.value ? form.realitySni.value.split(',').map(function(s) { return s.trim(); }) : ['www.google.com'];
+            data.realityPrivateKey = form.realityPrivateKey.value;
+            data.realityPublicKey = form.realityPublicKey.value;
+            data.realityShortIds = form.realityShortIds.value ? form.realityShortIds.value.split(',').map(function(s) { return s.trim(); }) : [''];
+            data.realityFingerprint = form.realityFingerprint.value;
+        }
+
+        // MUX settings
+        if (form.muxEnabled.checked) {
+            data.muxEnabled = true;
+            data.muxConcurrency = parseInt(form.muxConcurrency.value) || 8;
+            data.muxXudpConcurrency = parseInt(form.muxXudpConcurrency.value) || 16;
+            data.muxXudpProxyUDP443 = form.muxXudpProxyUDP443.value;
+        }
+
+        // Geo-routing settings
+        if (form.geoRoutingEnabled.checked) {
+            var domains = form.geoRoutingDomains.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+            var geoip = form.geoRoutingGeoip.value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+            data.geoRouting = {
+                enabled: true,
+                domains: domains,
+                geoip: geoip
+            };
+        }
 
         if (!data.name || !data.portalNodeId || !data.bridgeNodeId) {
             alert(i18n.fillRequired || 'Please fill in all required fields');
@@ -724,18 +860,19 @@
         btn.innerHTML = '<i class="ti ti-loader-2 spin"></i>';
 
         try {
-            const res = await fetch('/api/cascade/links', {
+            var res = await fetch('/api/cascade/links', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
             if (!res.ok) {
-                const err = await res.json();
+                var err = await res.json();
                 showToast((i18n.networkError || 'Error') + ': ' + (err.error || ''), 'error');
                 return;
             }
             closeModal();
             loadTopology();
+            showToast(i18n.linkCreated || 'Cascade link created');
         } catch (err) {
             showToast((i18n.networkError || 'Error') + ': ' + err.message, 'error');
         } finally {
