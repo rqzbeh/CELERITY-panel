@@ -84,6 +84,7 @@ MONGO_PASSWORD=yourmongopassword   # openssl rand -hex 16
 - 🔑 **API Keys** — Secure external access with scopes, IP allowlist, rate limiting
 - 🪝 **Webhooks** — Real-time event notifications with HMAC-SHA256 signing
 - 🗺 **Network Map** — Visual cascade topology with Forward/Reverse chain routing *(beta)*
+- 🤖 **MCP Integration** — Native AI assistant support (Claude, Cursor, etc.) for panel management
 
 ---
 
