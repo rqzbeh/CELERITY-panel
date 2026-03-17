@@ -87,9 +87,11 @@ function resolveRealitySettings(input = {}) {
         ? inputShortIds
         : [crypto.randomBytes(8).toString('hex')];
 
+    const realitySni = normalizeStringArray(input.realitySni).filter(Boolean);
+
     return {
-        realityDest: String(input.realityDest || '').trim(),
-        realitySni: normalizeStringArray(input.realitySni).filter(Boolean),
+        realityDest: String(input.realityDest || '').trim() || 'www.google.com:443',
+        realitySni: realitySni.length > 0 ? realitySni : ['www.google.com'],
         realityPrivateKey: privateKey,
         realityPublicKey: publicKey,
         realityShortIds: shortIds,

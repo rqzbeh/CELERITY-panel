@@ -881,6 +881,8 @@ function buildCascadeTunnelStreamSettings(link, opts = {}) {
     const transport = link.tunnelTransport || 'tcp';
     const security = link.tunnelSecurity || 'none';
     const networkName = (transport === 'xhttp' || transport === 'splithttp') ? 'splithttp' : transport;
+    const realityServerNames = link.realitySni?.length ? link.realitySni : ['www.google.com'];
+    const realityServerName = realityServerNames[0] || 'www.google.com';
 
     const stream = {
         network: networkName,
@@ -893,13 +895,13 @@ function buildCascadeTunnelStreamSettings(link, opts = {}) {
         if (opts.server) {
             stream.realitySettings = {
                 dest: link.realityDest || 'www.google.com:443',
-                serverNames: link.realitySni?.length ? link.realitySni : ['www.google.com'],
+                serverNames: realityServerNames,
                 privateKey: link.realityPrivateKey || '',
                 shortIds: link.realityShortIds?.length ? link.realityShortIds : [''],
             };
         } else {
             stream.realitySettings = {
-                serverName: (link.realitySni && link.realitySni[0]) || '',
+                serverName: realityServerName,
                 fingerprint: link.realityFingerprint || 'chrome',
                 publicKey: link.realityPublicKey || '',
                 shortId: (link.realityShortIds || []).find(id => id && id.length > 0) ||
