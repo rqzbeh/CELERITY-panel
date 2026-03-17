@@ -162,7 +162,7 @@ async function manageCascade(args, emit) {
             if (!link) return { error: `Cascade link '${id}' not found`, code: 404 };
             if (link.status === 'active') {
                 emit('progress', { message: 'Undeploying before delete...' });
-                await cascadeService.undeploy(link).catch(() => {});
+                await cascadeService.undeployLink(link).catch(() => {});
             }
             await CascadeLink.findByIdAndDelete(id);
             await invalidateCascadeCache();
@@ -178,7 +178,7 @@ async function manageCascade(args, emit) {
             if (!link) return { error: `Cascade link '${id}' not found`, code: 404 };
 
             emit('progress', { message: `Deploying cascade link '${link.name}'...` });
-            const result = await cascadeService.deploy(link);
+            const result = await cascadeService.deployLink(link);
 
             if (result.success) {
                 logger.info(`[MCP] Deployed cascade link ${link.name}`);
@@ -195,7 +195,7 @@ async function manageCascade(args, emit) {
             if (!link) return { error: `Cascade link '${id}' not found`, code: 404 };
 
             emit('progress', { message: `Undeploying cascade link '${link.name}'...` });
-            await cascadeService.undeploy(link);
+            await cascadeService.undeployLink(link);
             return { success: true, message: `Link '${link.name}' undeployed` };
         }
 
@@ -207,7 +207,7 @@ async function manageCascade(args, emit) {
             if (!link) return { error: `Cascade link '${id}' not found`, code: 404 };
 
             emit('progress', { message: `Reconnecting cascade link '${link.name}'...` });
-            await cascadeService.reconnect(link);
+            await cascadeService.deployLink(link);
             return { success: true, message: `Link '${link.name}' reconnection triggered` };
         }
 
