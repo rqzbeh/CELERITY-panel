@@ -87,6 +87,60 @@
         document.getElementById('modalCancel').addEventListener('click', closeModal);
         document.getElementById('addLinkForm').addEventListener('submit', onAddLinkSubmit);
 
+        // Mode switcher
+        initModeSwitcher('modeSwitcher', 'linkModeInput', 'modeHint');
+        initModeSwitcher('quickModeSwitcher', 'quickLinkMode');
+
+        // Security change -> show/hide REALITY section
+        var secSel = document.getElementById('selectSecurity');
+        if (secSel) secSel.addEventListener('change', function () {
+            var rs = document.getElementById('realitySection');
+            if (rs) rs.style.display = this.value === 'reality' ? '' : 'none';
+        });
+
+        // Transport change -> disable REALITY for ws (not supported by Xray)
+        var transSel = document.getElementById('selectTransport');
+        if (transSel) transSel.addEventListener('change', function () {
+            var secSelect = document.getElementById('selectSecurity');
+            if (!secSelect) return;
+            var realityOpt = secSelect.querySelector('option[value="reality"]');
+            if (!realityOpt) return;
+            if (this.value === 'ws') {
+                realityOpt.disabled = true;
+                if (secSelect.value === 'reality') {
+                    secSelect.value = 'none';
+                    secSelect.dispatchEvent(new Event('change'));
+                }
+            } else {
+                realityOpt.disabled = false;
+            }
+        });
+
+        // Geo routing toggle
+        var geoCheck = document.getElementById('geoRoutingEnabled');
+        if (geoCheck) geoCheck.addEventListener('change', function () {
+            var fields = document.getElementById('geoRoutingFields');
+            if (fields) fields.style.display = this.checked ? '' : 'none';
+        });
+
+        // Quick link modal handlers
+        var quickForm = document.getElementById('quickLinkForm');
+        if (quickForm) quickForm.addEventListener('submit', onQuickLinkSubmit);
+        var quickClose = document.getElementById('quickModalClose');
+        if (quickClose) quickClose.addEventListener('click', closeQuickModal);
+        var quickCancel = document.getElementById('quickModalCancel');
+        if (quickCancel) quickCancel.addEventListener('click', closeQuickModal);
+        var swapBtn = document.getElementById('quickSwapBtn');
+        if (swapBtn) swapBtn.addEventListener('click', onQuickSwap);
+
+        // Reconnect modal handlers
+        var reconnClose = document.getElementById('reconnectModalClose');
+        if (reconnClose) reconnClose.addEventListener('click', closeReconnectModal);
+        var reconnCancel = document.getElementById('reconnectModalCancel');
+        if (reconnCancel) reconnCancel.addEventListener('click', closeReconnectModal);
+        var reconnSubmit = document.getElementById('reconnectModalSubmit');
+        if (reconnSubmit) reconnSubmit.addEventListener('click', onReconnectSubmit);
+
         setTimeout(function () {
             cy.resize();
             loadTopology();
@@ -193,9 +247,12 @@
 
     function buildEdgeLabel(d) {
         const parts = [];
+        const modePrefix = d.mode === 'forward' ? 'F' : 'R';
+        parts.push(modePrefix);
         if (d.tunnelProtocol) parts.push(d.tunnelProtocol.toUpperCase());
         if (d.tunnelPort)     parts.push(':' + d.tunnelPort);
         if (d.latencyMs != null) parts.push(d.latencyMs + 'ms');
+        if (d.muxEnabled) parts.push('MUX');
         return parts.join(' ');
     }
 
@@ -314,7 +371,9 @@
                     'text-background-shape':   'round-rectangle',
                     'text-rotation':       'autorotate',
                     'overlay-opacity': 0,
-                    'line-style': 'dashed',
+                    'line-style': function (e) {
+                        return e.data('mode') === 'forward' ? 'solid' : 'dashed';
+                    },
                     'line-dash-pattern': [6, 4],
                     'line-dash-offset': 0,
                 },
@@ -439,11 +498,15 @@
             const color    = isOnline ? [34, 197, 94] : [59, 130, 246];
             const count    = isOnline ? 4 : 2;
 
+            // Reverse mode: particles flow target→source (Bridge initiates to Portal)
+            // Forward mode: particles flow source→target (Portal connects to Bridge)
+            const isForward = edge.data('mode') === 'forward';
             for (let i = 0; i < count; i++) {
+                const spd = 0.0035 + Math.random() * 0.003;
                 particles.push({
                     edge,
                     progress: i / count,
-                    speed: 0.0035 + Math.random() * 0.003,
+                    speed: isForward ? spd : -spd,
                     size: isOnline ? 2.8 : 2.2,
                     color,
                 });
@@ -476,6 +539,7 @@
         for (const p of particles) {
             p.progress += p.speed;
             if (p.progress >= 1) p.progress -= 1;
+            if (p.progress < 0) p.progress += 1;
 
             const src = p.edge.source().position();
             const tgt = p.edge.target().position();
@@ -601,7 +665,6 @@
         const sc = d.status || 'pending';
         const lid = d.linkId;
 
-        // Internet edge - show simple info without actions
         if (d.isInternetEdge) {
             const html =
                 '<div class="info-grid">' +
@@ -614,15 +677,28 @@
             return;
         }
 
+        const modeLabel = d.mode === 'forward'
+            ? '<span class="info-mode-badge forward">' + (i18n.modeForward || 'Forward Chain') + '</span>'
+            : '<span class="info-mode-badge reverse">' + (i18n.modeReverse || 'Reverse Proxy') + '</span>';
+
+        const secLabel = (d.tunnelSecurity || 'none').toUpperCase();
+        const extras = [];
+        if (d.muxEnabled) extras.push('MUX');
+        if (d.tunnelSecurity === 'reality') extras.push('REALITY');
+
         const html =
             '<div class="info-grid">' +
             field(i18n.drawerStatus || 'Status',
                 '<div class="info-status ' + sc + '">\u25CF ' + (d.status || 'pending') + '</div>') +
+            field(i18n.linkMode || 'Mode', modeLabel) +
             field('ti-plug',           i18n.drawerTunnelPort        || 'Tunnel Port',         d.tunnelPort || '—') +
             field('ti-arrows-exchange',i18n.drawerProtocolTransport || 'Protocol / Transport',
-                (d.tunnelProtocol || 'vless').toUpperCase() + ' / ' + (d.tunnelTransport || 'tcp')) +
+                (d.tunnelProtocol || 'vless').toUpperCase() + ' / ' + (d.tunnelTransport || 'tcp') + ' / ' + secLabel) +
             field('ti-clock',          i18n.drawerLatency           || 'Latency',
                 d.latencyMs != null ? d.latencyMs + ' ms' : '—') +
+            (extras.length > 0
+                ? field('ti-settings', 'Features', extras.join(', '))
+                : '') +
             '</div>' +
             '<div class="info-actions">' +
             '<button class="btn btn-sm btn-success" id="btnDeploy" onclick="window._cascadeDeploy(\'' + lid + '\')">' +
@@ -698,14 +774,33 @@
     function closeModal() {
         document.getElementById('addLinkModal').classList.remove('active');
         document.getElementById('addLinkForm').reset();
+        // Reset mode switcher to reverse
+        var modeInput = document.getElementById('linkModeInput');
+        if (modeInput) modeInput.value = 'reverse';
+        var switcher = document.getElementById('modeSwitcher');
+        if (switcher) {
+            switcher.querySelectorAll('.mode-btn').forEach(function (b) {
+                b.classList.toggle('active', b.getAttribute('data-mode') === 'reverse');
+            });
+        }
+        var hint = document.getElementById('modeHint');
+        if (hint) hint.textContent = i18n.modeReverseHint || 'Bridge initiates tunnel to Portal. Bridge can be behind NAT.';
+        var realitySec = document.getElementById('realitySection');
+        if (realitySec) realitySec.style.display = 'none';
+        var geoFields = document.getElementById('geoRoutingFields');
+        if (geoFields) geoFields.style.display = 'none';
+        var domGroup = document.getElementById('tunnelDomainGroup');
+        if (domGroup) domGroup.style.display = '';
     }
 
     async function onAddLinkSubmit(e) {
         e.preventDefault();
         const form = e.target;
         const btn  = form.querySelector('[type="submit"]');
+
         const data = {
             name:           form.name.value,
+            mode:           form.mode.value || 'reverse',
             portalNodeId:   form.portalNodeId.value,
             bridgeNodeId:   form.bridgeNodeId.value,
             tunnelPort:     parseInt(form.tunnelPort.value) || 10086,
@@ -713,7 +808,37 @@
             tunnelTransport:form.tunnelTransport.value,
             tunnelSecurity: form.tunnelSecurity.value,
             autoDeploy:     form.autoDeploy?.checked || false,
+            muxEnabled:     form.muxEnabled?.checked || false,
+            muxConcurrency: parseInt(form.muxConcurrency?.value) || 8,
+            priority:       parseInt(form.priority?.value) || 100,
         };
+
+        // Tunnel domain (reverse only)
+        if (form.tunnelDomain?.value) {
+            data.tunnelDomain = form.tunnelDomain.value;
+        }
+
+        // REALITY fields
+        if (data.tunnelSecurity === 'reality') {
+            data.realityDest = form.realityDest?.value || '';
+            data.realitySni = form.realitySni?.value || '';
+            data.realityPrivateKey = form.realityPrivateKey?.value || '';
+            data.realityPublicKey = form.realityPublicKey?.value || '';
+            data.realityShortIds = form.realityShortIds?.value || '';
+            data.realityFingerprint = form.realityFingerprint?.value || 'chrome';
+        }
+
+        // Geo routing
+        const geoEnabled = document.getElementById('geoRoutingEnabled');
+        if (geoEnabled?.checked) {
+            const domStr = (document.getElementById('geoRoutingDomains')?.value || '').trim();
+            const ipStr  = (document.getElementById('geoRoutingGeoip')?.value || '').trim();
+            data.geoRouting = {
+                enabled: true,
+                domains: domStr ? domStr.split(/[,\s]+/).filter(Boolean) : [],
+                geoip:   ipStr  ? ipStr.split(/[,\s]+/).filter(Boolean)  : [],
+            };
+        }
 
         if (!data.name || !data.portalNodeId || !data.bridgeNodeId) {
             alert(i18n.fillRequired || 'Please fill in all required fields');
@@ -889,6 +1014,127 @@
         toast.textContent = message;
         toast.className = 'toast show ' + (type || 'success');
         setTimeout(function () { toast.className = 'toast'; }, 3500);
+    }
+
+    // ==================== MODE SWITCHER ====================
+
+    function initModeSwitcher(switcherId, inputId, hintId) {
+        var switcher = document.getElementById(switcherId);
+        if (!switcher) return;
+        var btns = switcher.querySelectorAll('.mode-btn');
+        btns.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                btns.forEach(function (b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                var mode = btn.getAttribute('data-mode');
+                var input = document.getElementById(inputId);
+                if (input) input.value = mode;
+                if (hintId) {
+                    var hint = document.getElementById(hintId);
+                    if (hint) {
+                        hint.textContent = mode === 'forward'
+                            ? (i18n.modeForwardHint || 'Portal connects to Bridge directly. All nodes need public IP.')
+                            : (i18n.modeReverseHint || 'Bridge initiates tunnel to Portal. Bridge can be behind NAT.');
+                    }
+                }
+                // Show/hide tunnel domain field (reverse only)
+                var domGroup = document.getElementById('tunnelDomainGroup');
+                if (domGroup) domGroup.style.display = mode === 'forward' ? 'none' : '';
+            });
+        });
+    }
+
+    // ==================== QUICK LINK MODAL ====================
+
+    function closeQuickModal() {
+        var modal = document.getElementById('quickLinkModal');
+        if (modal) modal.classList.remove('active');
+    }
+
+    function onQuickSwap() {
+        var pId = document.getElementById('quickPortalId');
+        var bId = document.getElementById('quickBridgeId');
+        var pName = document.getElementById('quickPortalName');
+        var bName = document.getElementById('quickBridgeName');
+        if (!pId || !bId) return;
+        var tmpId = pId.value; pId.value = bId.value; bId.value = tmpId;
+        var tmpName = pName.textContent; pName.textContent = bName.textContent; bName.textContent = tmpName;
+    }
+
+    async function onQuickLinkSubmit(e) {
+        e.preventDefault();
+        var data = {
+            name: document.getElementById('quickLinkName').value,
+            mode: document.getElementById('quickLinkMode').value || 'reverse',
+            portalNodeId: document.getElementById('quickPortalId').value,
+            bridgeNodeId: document.getElementById('quickBridgeId').value,
+            tunnelPort: parseInt(document.getElementById('quickTunnelPort').value) || 10086,
+            tunnelProtocol: document.getElementById('quickTunnelProtocol').value,
+            autoDeploy: document.getElementById('quickAutoDeploy')?.checked || false,
+        };
+        if (!data.name || !data.portalNodeId || !data.bridgeNodeId) {
+            alert(i18n.fillRequired || 'Please fill in all required fields');
+            return;
+        }
+        var btn = document.getElementById('quickLinkSubmit');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i>'; }
+        try {
+            var res = await fetch('/api/cascade/links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                var err = await res.json();
+                showToast((i18n.networkError || 'Error') + ': ' + (err.error || ''), 'error');
+                return;
+            }
+            closeQuickModal();
+            loadTopology();
+        } catch (err) {
+            showToast((i18n.networkError || 'Error') + ': ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-plus"></i> ' + (i18n.createLink || 'Create'); }
+        }
+    }
+
+    // ==================== RECONNECT MODAL ====================
+
+    function closeReconnectModal() {
+        var modal = document.getElementById('reconnectModal');
+        if (modal) modal.classList.remove('active');
+    }
+
+    async function onReconnectSubmit() {
+        var linkId = document.getElementById('reconnectLinkId')?.value;
+        var mode = document.getElementById('reconnectMode')?.value;
+        var nodeId = document.getElementById('reconnectNodeSelect')?.value;
+        if (!linkId || !nodeId) return;
+
+        var btn = document.getElementById('reconnectModalSubmit');
+        if (btn) { btn.disabled = true; }
+        try {
+            var body = {};
+            body[mode === 'bridge' ? 'bridgeNodeId' : 'portalNodeId'] = nodeId;
+            var res = await fetch('/api/cascade/links/' + linkId + '/reconnect', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) {
+                showToast(i18n.reconnectSuccess || 'Reconnected');
+                closeReconnectModal();
+                closeInfoModal();
+                loadTopology();
+            } else {
+                var data = await res.json();
+                showToast((i18n.reconnectFailed || 'Failed') + ': ' + (data.error || ''), 'error');
+            }
+        } catch (err) {
+            showToast((i18n.networkError || 'Error') + ': ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; }
+        }
     }
 
     // ==================== START ====================

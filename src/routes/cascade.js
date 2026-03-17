@@ -89,7 +89,11 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             tunnelSecurity, tunnelTransport, tunnelDomain, tunnelUuid,
             tcpFastOpen, tcpKeepAlive, tcpNoDelay,
             wsPath, wsHost, grpcServiceName,
-            xhttpPath, xhttpHost, xhttpMode } = req.body;
+            xhttpPath, xhttpHost, xhttpMode,
+            mode, muxEnabled, muxConcurrency,
+            geoRouting, realityDest, realitySni, realityPrivateKey,
+            realityPublicKey, realityShortIds, realityFingerprint,
+            priority } = req.body;
 
         if (!name || !portalNodeId || !bridgeNodeId) {
             return res.status(400).json({ error: 'name, portalNodeId and bridgeNodeId are required' });
@@ -103,9 +107,21 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             return res.status(400).json({ error: 'Portal and Bridge must be different nodes' });
         }
 
+        const linkMode = mode || 'reverse';
+        if (!['reverse', 'forward'].includes(linkMode)) {
+            return res.status(400).json({ error: 'mode must be "reverse" or "forward"' });
+        }
+
         const port = parseInt(tunnelPort) || 10086;
         if (port < 1 || port > 65535) {
             return res.status(400).json({ error: 'tunnelPort must be between 1 and 65535' });
+        }
+
+        // REALITY is only supported on tcp, grpc, splithttp — not ws
+        const sec = tunnelSecurity || 'none';
+        const trans = tunnelTransport || 'tcp';
+        if (sec === 'reality' && trans === 'ws') {
+            return res.status(400).json({ error: 'REALITY security is not compatible with WebSocket transport. Use TCP, gRPC, or SplitHTTP.' });
         }
 
         const [portalNode, bridgeNode] = await Promise.all([
@@ -116,9 +132,11 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
         if (!portalNode) return res.status(404).json({ error: 'Portal node not found' });
         if (!bridgeNode) return res.status(404).json({ error: 'Bridge node not found' });
 
-        // Check if port is already used on this portal node
+        // For forward mode: port conflict check on bridge; for reverse: on portal
+        const portCheckNodeField = linkMode === 'forward' ? 'bridgeNode' : 'portalNode';
+        const portCheckNodeId = linkMode === 'forward' ? bridgeNodeId : portalNodeId;
         const existingLink = await CascadeLink.findOne({
-            portalNode: portalNodeId,
+            [portCheckNodeField]: portCheckNodeId,
             tunnelPort: port,
             active: true,
         });
@@ -128,8 +146,9 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             });
         }
 
-        const link = await CascadeLink.create({
+        const linkData = {
             name,
+            mode: linkMode,
             portalNode: portalNodeId,
             bridgeNode: bridgeNodeId,
             tunnelUuid: tunnelUuid || generateUuid(),
@@ -147,18 +166,57 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             xhttpPath: xhttpPath || '/cascade',
             xhttpHost: xhttpHost || '',
             xhttpMode: xhttpMode || 'auto',
-        });
+            muxEnabled: !!muxEnabled,
+            muxConcurrency: parseInt(muxConcurrency) || 8,
+            priority: parseInt(priority) || 100,
+        };
+
+        // REALITY fields with validation
+        if (sec === 'reality') {
+            if (!realityPrivateKey || !realityPublicKey) {
+                return res.status(400).json({ error: 'REALITY requires both privateKey and publicKey' });
+            }
+            // x25519 keys are 43-44 char base64; shortIds are hex strings up to 16 chars
+            if (!/^[A-Za-z0-9_\-+/]{43,44}=?$/.test(realityPrivateKey)) {
+                return res.status(400).json({ error: 'Invalid REALITY privateKey format (expected base64 x25519 key)' });
+            }
+            if (!/^[A-Za-z0-9_\-+/]{43,44}=?$/.test(realityPublicKey)) {
+                return res.status(400).json({ error: 'Invalid REALITY publicKey format (expected base64 x25519 key)' });
+            }
+            const shortIds = Array.isArray(realityShortIds) ? realityShortIds : (realityShortIds ? [realityShortIds] : ['']);
+            for (const sid of shortIds) {
+                if (sid && !/^[0-9a-fA-F]{0,16}$/.test(sid)) {
+                    return res.status(400).json({ error: 'Invalid REALITY shortId format (expected hex string, max 16 chars)' });
+                }
+            }
+
+            linkData.realityDest = realityDest || '';
+            linkData.realitySni = Array.isArray(realitySni) ? realitySni : (realitySni ? [realitySni] : []);
+            linkData.realityPrivateKey = realityPrivateKey;
+            linkData.realityPublicKey = realityPublicKey;
+            linkData.realityShortIds = shortIds;
+            linkData.realityFingerprint = realityFingerprint || 'chrome';
+        }
+
+        // Geo-routing
+        if (geoRouting && typeof geoRouting === 'object') {
+            linkData.geoRouting = {
+                enabled: !!geoRouting.enabled,
+                domains: Array.isArray(geoRouting.domains) ? geoRouting.domains.filter(Boolean) : [],
+                geoip: Array.isArray(geoRouting.geoip) ? geoRouting.geoip.filter(Boolean) : [],
+            };
+        }
+
+        const link = await CascadeLink.create(linkData);
 
         const populated = await CascadeLink.findById(link._id)
             .populate('portalNode', 'name ip flag status')
             .populate('bridgeNode', 'name ip flag status');
 
-        logger.info(`[Cascade API] Created link ${name}: ${portalNode.name} -> ${bridgeNode.name}`);
+        logger.info(`[Cascade API] Created ${linkMode} link ${name}: ${portalNode.name} -> ${bridgeNode.name}`);
 
-        // Invalidate subscription cache (cascade affects node roles)
         await invalidateCascadeCache();
 
-        // Auto-deploy chain if requested
         if (req.body.autoDeploy) {
             cascadeService.deployChain(portalNodeId).catch(err => {
                 logger.warn(`[Cascade API] Auto-deploy failed: ${err.message}`);
@@ -182,11 +240,14 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
         }
 
         const allowedFields = [
-            'name', 'tunnelPort', 'tunnelDomain', 'tunnelProtocol',
+            'name', 'mode', 'tunnelPort', 'tunnelDomain', 'tunnelProtocol',
             'tunnelSecurity', 'tunnelTransport', 'tunnelUuid',
             'tcpFastOpen', 'tcpKeepAlive', 'tcpNoDelay', 'active', 'priority',
             'wsPath', 'wsHost', 'grpcServiceName',
             'xhttpPath', 'xhttpHost', 'xhttpMode',
+            'muxEnabled', 'muxConcurrency',
+            'realityDest', 'realityPrivateKey', 'realityPublicKey',
+            'realityFingerprint',
         ];
 
         const updates = {};
@@ -196,6 +257,15 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
             }
         }
 
+        // Fetch current link once for all validation checks
+        let currentLink = null;
+        const needsCurrentLink = updates.tunnelPort !== undefined ||
+            updates.tunnelSecurity === 'reality' || updates.tunnelTransport ||
+            updates.realityPrivateKey || updates.realityPublicKey;
+        if (needsCurrentLink) {
+            currentLink = await CascadeLink.findById(req.params.id);
+        }
+
         if (updates.tunnelPort !== undefined) {
             const port = parseInt(updates.tunnelPort);
             if (port < 1 || port > 65535) {
@@ -203,11 +273,13 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
             }
             updates.tunnelPort = port;
 
-            // Check if port is already used by another link on the same portal
-            const currentLink = await CascadeLink.findById(req.params.id);
             if (currentLink) {
+                // Forward: port is on bridge, Reverse: port is on portal
+                const effectiveMode = updates.mode || currentLink.mode || 'reverse';
+                const nodeField = effectiveMode === 'forward' ? 'bridgeNode' : 'portalNode';
+                const nodeId = currentLink[nodeField];
                 const conflictingLink = await CascadeLink.findOne({
-                    portalNode: currentLink.portalNode,
+                    [nodeField]: nodeId,
                     tunnelPort: port,
                     active: true,
                     _id: { $ne: req.params.id },
@@ -220,12 +292,45 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
             }
         }
 
+        // Validate REALITY + transport compatibility
+        if (updates.tunnelSecurity === 'reality' || updates.tunnelTransport) {
+            const effectiveSec = updates.tunnelSecurity || currentLink?.tunnelSecurity || 'none';
+            const effectiveTrans = updates.tunnelTransport || currentLink?.tunnelTransport || 'tcp';
+            if (effectiveSec === 'reality' && effectiveTrans === 'ws') {
+                return res.status(400).json({ error: 'REALITY security is not compatible with WebSocket transport' });
+            }
+        }
+
+        // Validate REALITY key formats on update
+        if (updates.realityPrivateKey && !/^[A-Za-z0-9_\-+/]{43,44}=?$/.test(updates.realityPrivateKey)) {
+            return res.status(400).json({ error: 'Invalid REALITY privateKey format' });
+        }
+        if (updates.realityPublicKey && !/^[A-Za-z0-9_\-+/]{43,44}=?$/.test(updates.realityPublicKey)) {
+            return res.status(400).json({ error: 'Invalid REALITY publicKey format' });
+        }
+
         // Geo-routing settings
         if (req.body.geoRouting !== undefined) {
             const gr = req.body.geoRouting;
             updates['geoRouting.enabled'] = !!gr.enabled;
             if (Array.isArray(gr.domains)) updates['geoRouting.domains'] = gr.domains.map(String);
             if (Array.isArray(gr.geoip))   updates['geoRouting.geoip']   = gr.geoip.map(String);
+        }
+
+        // REALITY array fields
+        if (req.body.realitySni !== undefined) {
+            updates.realitySni = Array.isArray(req.body.realitySni)
+                ? req.body.realitySni : (req.body.realitySni ? [req.body.realitySni] : []);
+        }
+        if (req.body.realityShortIds !== undefined) {
+            const shortIds = Array.isArray(req.body.realityShortIds)
+                ? req.body.realityShortIds : (req.body.realityShortIds ? [req.body.realityShortIds] : ['']);
+            for (const sid of shortIds) {
+                if (sid && !/^[0-9a-fA-F]{0,16}$/.test(sid)) {
+                    return res.status(400).json({ error: 'Invalid REALITY shortId format (hex, max 16 chars)' });
+                }
+            }
+            updates.realityShortIds = shortIds;
         }
 
         const link = await CascadeLink.findByIdAndUpdate(

@@ -253,7 +253,7 @@
 
     <!-- Add Link Modal -->
     <div class="modal-overlay" id="addLinkModal">
-        <div class="modal-card">
+        <div class="modal-card modal-card-lg">
             <div class="modal-header">
                 <h3><i class="ti ti-link"></i> <%= t('network.addLink') %></h3>
                 <button class="modal-close" id="modalClose"><i class="ti ti-x"></i></button>
@@ -263,6 +263,22 @@
                     <label><%= t('network.linkName') %></label>
                     <input type="text" name="name" class="form-input" required placeholder="YandexCloud → France">
                 </div>
+
+                <!-- Mode Switcher -->
+                <div class="form-group">
+                    <label><%= t('network.linkMode') %></label>
+                    <div class="mode-switcher" id="modeSwitcher">
+                        <button type="button" class="mode-btn active" data-mode="reverse">
+                            <i class="ti ti-arrows-exchange"></i> <%= t('network.modeReverse') %>
+                        </button>
+                        <button type="button" class="mode-btn" data-mode="forward">
+                            <i class="ti ti-arrow-right"></i> <%= t('network.modeForward') %>
+                        </button>
+                    </div>
+                    <input type="hidden" name="mode" id="linkModeInput" value="reverse">
+                    <div class="form-hint" id="modeHint"><%= t('network.modeReverseHint') %></div>
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label><%= t('network.portalNode') %></label>
@@ -289,21 +305,122 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label><%= t('network.tunnelTransport') %></label>
-                        <select name="tunnelTransport" class="form-input">
+                        <select name="tunnelTransport" class="form-input" id="selectTransport">
                             <option value="tcp">TCP</option>
                             <option value="ws">WebSocket</option>
                             <option value="grpc">gRPC</option>
+                            <option value="splithttp">SplitHTTP</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label><%= t('network.tunnelSecurity') %></label>
-                        <select name="tunnelSecurity" class="form-input">
+                        <select name="tunnelSecurity" class="form-input" id="selectSecurity">
                             <option value="none">None</option>
                             <option value="tls">TLS</option>
+                            <option value="reality">REALITY</option>
                         </select>
                     </div>
                 </div>
+
+                <!-- REALITY Settings (hidden by default) -->
+                <div class="form-section" id="realitySection" style="display:none">
+                    <div class="form-section-title"><i class="ti ti-shield-lock"></i> REALITY</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.realityDest') %></label>
+                            <input type="text" name="realityDest" class="form-input" placeholder="www.google.com:443">
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.realitySni') %></label>
+                            <input type="text" name="realitySni" class="form-input" placeholder="www.google.com">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.realityPrivateKey') %></label>
+                            <input type="text" name="realityPrivateKey" class="form-input" placeholder="Server private key">
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.realityPublicKey') %></label>
+                            <input type="text" name="realityPublicKey" class="form-input" placeholder="Client public key">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.realityShortIds') %></label>
+                            <input type="text" name="realityShortIds" class="form-input" placeholder="Short ID (hex)">
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.realityFingerprint') %></label>
+                            <select name="realityFingerprint" class="form-input">
+                                <option value="chrome">Chrome</option>
+                                <option value="firefox">Firefox</option>
+                                <option value="safari">Safari</option>
+                                <option value="random">Random</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Options -->
+                <details class="form-details">
+                    <summary><%= t('network.advancedOptions') %></summary>
+
+                    <!-- MUX -->
+                    <div class="form-row" style="margin-top:10px">
+                        <div class="form-group">
+                            <label class="form-checkbox">
+                                <input type="checkbox" name="muxEnabled" id="muxEnabledCheck">
+                                <span><%= t('network.muxEnabled') %></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.muxConcurrency') %></label>
+                            <input type="number" name="muxConcurrency" class="form-input" value="8" min="1" max="64">
+                        </div>
+                    </div>
+
+                    <!-- Geo Routing -->
+                    <div class="form-group">
+                        <label class="form-checkbox">
+                            <input type="checkbox" id="geoRoutingEnabled">
+                            <span><%= t('network.geoRoutingEnabled') %></span>
+                        </label>
+                    </div>
+                    <div id="geoRoutingFields" style="display:none">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label><%= t('network.geoRoutingDomains') %></label>
+                                <input type="text" id="geoRoutingDomains" class="form-input" placeholder="cn, google, category-ads">
+                            </div>
+                            <div class="form-group">
+                                <label><%= t('network.geoRoutingGeoip') %></label>
+                                <input type="text" id="geoRoutingGeoip" class="form-input" placeholder="cn, ru, us">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Priority -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.priority') %></label>
+                            <input type="number" name="priority" class="form-input" value="100" min="1" max="999">
+                        </div>
+                        <div class="form-group">
+                            <!-- Tunnel domain (reverse only) -->
+                            <div id="tunnelDomainGroup">
+                                <label><%= t('network.tunnelDomain') %></label>
+                                <input type="text" name="tunnelDomain" class="form-input" value="reverse.tunnel.internal">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
                 <div class="form-actions">
+                    <label class="form-checkbox" style="margin-right:auto">
+                        <input type="checkbox" name="autoDeploy" checked>
+                        <span><%= t('network.autoDeploy') %></span>
+                    </label>
                     <button type="button" class="btn" id="modalCancel"><%= t('common.cancel') %></button>
                     <button type="submit" class="btn btn-primary"><%= t('network.createLink') %></button>
                 </div>
@@ -315,12 +432,13 @@
     <div class="modal-overlay" id="quickLinkModal">
         <div class="modal-card modal-card-sm">
             <div class="modal-header">
-                <h3><i class="ti ti-link"></i> <span id="quickLinkTitle"></span></h3>
+                <h3><i class="ti ti-link"></i> <span id="quickLinkTitle"><%= t('network.quickLinkTitle') %></span></h3>
                 <button class="modal-close" id="quickModalClose"><i class="ti ti-x"></i></button>
             </div>
             <form id="quickLinkForm" class="modal-body">
                 <input type="hidden" id="quickPortalId">
                 <input type="hidden" id="quickBridgeId">
+                <input type="hidden" id="quickLinkMode" value="reverse">
                 <div class="quick-link-nodes">
                     <div class="quick-node portal">
                         <div class="quick-node-label"><%= t('network.quickLinkPortal') %></div>
@@ -334,7 +452,18 @@
                         <div class="quick-node-name" id="quickBridgeName"></div>
                     </div>
                 </div>
-                <div class="form-group" style="margin-top:14px">
+                <!-- Quick Mode Switcher -->
+                <div class="form-group" style="margin-top:10px">
+                    <div class="mode-switcher mode-switcher-sm" id="quickModeSwitcher">
+                        <button type="button" class="mode-btn active" data-mode="reverse">
+                            <i class="ti ti-arrows-exchange"></i> <%= t('network.modeReverse') %>
+                        </button>
+                        <button type="button" class="mode-btn" data-mode="forward">
+                            <i class="ti ti-arrow-right"></i> <%= t('network.modeForward') %>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label><%= t('network.linkName') %></label>
                     <input type="text" id="quickLinkName" class="form-input" required>
                 </div>
@@ -352,6 +481,10 @@
                     </div>
                 </div>
                 <div class="form-actions">
+                    <label class="form-checkbox" style="margin-right:auto">
+                        <input type="checkbox" id="quickAutoDeploy" checked>
+                        <span><%= t('network.autoDeploy') %></span>
+                    </label>
                     <button type="button" class="btn" id="quickModalCancel"><%= t('common.cancel') %></button>
                     <button type="submit" class="btn btn-primary" id="quickLinkSubmit">
                         <i class="ti ti-plus"></i> <%= t('network.createLink') %>
@@ -687,7 +820,24 @@ window._networkI18n = {
     rolePortal: <%- JSON.stringify(t('network.rolePortal')) %>,
     roleBridge: <%- JSON.stringify(t('network.roleBridge')) %>,
     roleRelay: <%- JSON.stringify(t('network.roleRelay')) %>,
-    createLink: <%- JSON.stringify(t('network.createLink')) %>
+    createLink: <%- JSON.stringify(t('network.createLink')) %>,
+    linkMode: <%- JSON.stringify(t('network.linkMode')) %>,
+    modeReverse: <%- JSON.stringify(t('network.modeReverse')) %>,
+    modeForward: <%- JSON.stringify(t('network.modeForward')) %>,
+    modeReverseHint: <%- JSON.stringify(t('network.modeReverseHint')) %>,
+    modeForwardHint: <%- JSON.stringify(t('network.modeForwardHint')) %>,
+    confirmDeployChain: <%- JSON.stringify(t('network.confirmDeployChain')) %>,
+    syncingChain: <%- JSON.stringify(t('network.syncingChain')) %>,
+    chainDeploySuccess: <%- JSON.stringify(t('network.chainDeploySuccess')) %>,
+    chainDeployFailed: <%- JSON.stringify(t('network.chainDeployFailed')) %>,
+    syncChain: <%- JSON.stringify(t('network.syncChain')) %>,
+    confirmUndeploy: <%- JSON.stringify(t('network.confirmUndeploy')) %>,
+    undeploying: <%- JSON.stringify(t('network.undeploying')) %>,
+    undeploySuccess: <%- JSON.stringify(t('network.undeploySuccess')) %>,
+    nodes: <%- JSON.stringify(t('network.nodes')) %>,
+    internetDesc: <%- JSON.stringify(t('network.internetDesc')) %>,
+    internetExitDesc: <%- JSON.stringify(t('network.internetExitDesc')) %>,
+    internetExit: <%- JSON.stringify(t('network.internetExit')) %>
 };
 
 function loadNetworkScripts() {

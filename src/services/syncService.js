@@ -256,16 +256,40 @@ class SyncService {
                 await ssh.connect();
                 let configContent = configGenerator.generateXrayConfig(node, users);
 
-                // Apply cascade reverse-portal settings if this node is a portal
+                // Apply cascade settings (reverse-portal + forward-chain + forward-hop inbounds)
                 try {
                     const CascadeLink = require('../models/cascadeLinkModel');
-                    const portalLinks = await CascadeLink.find({ portalNode: node._id, active: true });
-                    if (portalLinks.length > 0) {
+                    const allPortalLinks = await CascadeLink.find({ portalNode: node._id, active: true }).populate('bridgeNode');
+                    const forwardHopLinks = await CascadeLink.find({ bridgeNode: node._id, mode: 'forward', active: true });
+
+                    if (allPortalLinks.length > 0 || forwardHopLinks.length > 0) {
                         const configObj = JSON.parse(configContent);
                         const inboundTag = node.xray?.inboundTag || 'vless-in';
-                        configGenerator.applyReversePortal(configObj, portalLinks, inboundTag);
+
+                        const reverseLinks = allPortalLinks.filter(l => l.mode !== 'forward');
+                        const forwardLinks = allPortalLinks.filter(l => l.mode === 'forward');
+
+                        if (reverseLinks.length > 0) {
+                            configGenerator.applyReversePortal(configObj, reverseLinks, inboundTag);
+                        }
+                        if (forwardLinks.length > 0) {
+                            configGenerator.applyForwardChain(configObj, forwardLinks, inboundTag);
+                        }
+                        if (forwardHopLinks.length > 0) {
+                            configGenerator.applyForwardHopInbound(configObj, forwardHopLinks);
+                        }
+
+                        // geoip:private block must be last, after all cascade rules
+                        configGenerator.ensurePrivateIpBlock(configObj);
+
                         configContent = JSON.stringify(configObj, null, 2);
-                        logger.info(`[Xray Sync] Node ${node.name}: applied ${portalLinks.length} cascade portal link(s)`);
+                        const total = reverseLinks.length + forwardLinks.length + forwardHopLinks.length;
+                        logger.info(`[Xray Sync] Node ${node.name}: applied ${total} cascade link(s) (${reverseLinks.length}R/${forwardLinks.length}F/${forwardHopLinks.length}H)`);
+                    } else {
+                        // No cascade links, still ensure geoip:private is present
+                        const configObj = JSON.parse(configContent);
+                        configGenerator.ensurePrivateIpBlock(configObj);
+                        configContent = JSON.stringify(configObj, null, 2);
                     }
                 } catch (cascadeErr) {
                     logger.warn(`[Xray Sync] Node ${node.name}: cascade apply skipped: ${cascadeErr.message}`);

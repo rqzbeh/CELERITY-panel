@@ -421,6 +421,128 @@
     animation: spin 0.8s linear infinite;
 }
 
+/* ==================== MODE SWITCHER ==================== */
+
+.mode-switcher {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.mode-switcher .mode-btn {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    border-radius: 6px;
+    background: var(--bg-secondary, rgba(255, 255, 255, 0.03));
+    color: var(--text-muted, #64748b);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.mode-switcher .mode-btn:hover {
+    border-color: var(--accent, #6366f1);
+    color: var(--text-primary, #e2e8f0);
+}
+
+.mode-switcher .mode-btn.active {
+    background: var(--accent, #6366f1);
+    border-color: var(--accent, #6366f1);
+    color: #fff;
+}
+
+.mode-switcher-sm .mode-btn {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
+.form-hint {
+    color: var(--text-muted, #64748b);
+    font-size: 11px;
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+/* ==================== FORM SECTIONS ==================== */
+
+.form-section {
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+}
+
+.form-section-title {
+    color: var(--text-muted, #94a3b8);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.form-details {
+    margin: 8px 0;
+}
+
+.form-details summary {
+    cursor: pointer;
+    color: var(--text-muted, #94a3b8);
+    font-size: 12px;
+    padding: 6px 0;
+    user-select: none;
+}
+
+.form-details summary:hover {
+    color: var(--text-primary, #e2e8f0);
+}
+
+.form-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.form-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent, #6366f1);
+}
+
+/* ==================== INFO MODE BADGE ==================== */
+
+.info-mode-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.info-mode-badge.reverse {
+    background: rgba(99, 102, 241, 0.15);
+    color: #818cf8;
+}
+
+.info-mode-badge.forward {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+
+.modal-card-lg {
+    max-width: 560px;
+}
+
 /* ==================== RESPONSIVE ==================== */
 
 @media (max-width: 768px) {

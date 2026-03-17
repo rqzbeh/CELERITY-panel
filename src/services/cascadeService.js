@@ -39,7 +39,7 @@ class CascadeService {
      */
     async deployLink(link) {
         const linkId = link._id;
-        logger.info(`[Cascade] Deploying link ${link.name} (${linkId})`);
+        logger.info(`[Cascade] Deploying ${link.mode || 'reverse'} link ${link.name} (${linkId})`);
 
         await CascadeLink.updateOne({ _id: linkId }, { $set: { status: 'pending', lastError: '' } });
 
@@ -53,21 +53,22 @@ class CascadeService {
         }
 
         try {
-            // Step 1: Update Portal node config (add reverse.portals + bridge-connector inbound)
-            await this._deployPortalConfig(portalNode);
+            if (link.mode === 'forward') {
+                await this._deployForwardLink(link, portalNode, bridgeNode);
+            } else {
+                await this._deployReverseLink(link, portalNode, bridgeNode);
+            }
 
-            // Step 2: Upload Bridge config via SSH
-            await this._deployBridgeConfig(link, bridgeNode, portalNode);
-
-            // Step 3: Open firewall port on Portal for the tunnel
-            await this._openFirewallPort(portalNode, link.tunnelPort || 10086);
-
-            // Step 4: Verify tunnel (give Bridge time to connect)
             const tunnelPort = link.tunnelPort || 10086;
             await new Promise(r => setTimeout(r, 3000));
+
+            // For forward: check bridge; for reverse: check portal
+            const checkNode = link.mode === 'forward' ? bridgeNode : portalNode;
             const [healthy, latencyMs] = await Promise.all([
-                this._checkTunnel(portalNode, tunnelPort),
-                this._measureTcpLatency(portalNode.ip, tunnelPort),
+                link.mode === 'forward'
+                    ? this._measureTcpLatency(bridgeNode.ip, tunnelPort).then(ms => ms !== null)
+                    : this._checkTunnel(portalNode, tunnelPort),
+                this._measureTcpLatency(checkNode.ip, tunnelPort),
             ]);
 
             const newStatus = healthy ? 'online' : 'deployed';
@@ -95,35 +96,70 @@ class CascadeService {
     }
 
     /**
-     * Undeploy a cascade link: regenerate Portal config without this link's
-     * reverse settings and stop the Bridge Xray service.
+     * Deploy a reverse-proxy link (original flow).
+     */
+    async _deployReverseLink(link, portalNode, bridgeNode) {
+        await this._deployPortalConfig(portalNode);
+        await this._deployBridgeConfig(link, bridgeNode, portalNode);
+        await this._openFirewallPort(portalNode, link.tunnelPort || 10086);
+    }
+
+    /**
+     * Deploy a forward-chain link.
+     * Order: bridge first (cascade inbound), then portal (outbound to bridge).
+     */
+    async _deployForwardLink(link, portalNode, bridgeNode) {
+        await this._deployForwardHopConfig(bridgeNode, [link]);
+        await this._openFirewallPort(bridgeNode, link.tunnelPort || 10086);
+        await this._deployPortalConfig(portalNode);
+    }
+
+    /**
+     * Undeploy a cascade link: regenerate configs without this link's settings.
+     * For reverse mode: regenerate Portal, stop xray-bridge on Bridge.
+     * For forward mode: regenerate Portal (remove outbound), regenerate Bridge
+     * (remove cascade inbound) if it's an existing Xray node, or stop xray-bridge.
      */
     async undeployLink(link) {
         const portalNode = await HyNode.findById(link.portalNode);
         const bridgeNode = await HyNode.findById(link.bridgeNode);
 
+        // Mark as pending first so _deployPortalConfig excludes this link
+        await CascadeLink.updateOne({ _id: link._id }, {
+            $set: { status: 'pending', lastError: '' },
+        });
+
+        // Regenerate configs — _deployPortalConfig queries status != 'pending'
+        // for active links, so this link is excluded
         if (portalNode) {
             try {
-                await this._deployPortalConfig(portalNode);
+                await this._deployPortalConfig(portalNode, { excludeLinkIds: [link._id] });
             } catch (err) {
                 logger.warn(`[Cascade] Portal redeploy on undeploy: ${err.message}`);
             }
         }
 
         if (bridgeNode && (bridgeNode.ssh?.password || bridgeNode.ssh?.privateKey)) {
-            const ssh = new NodeSSH(bridgeNode);
-            try {
-                await ssh.connect();
-                await ssh.exec('systemctl stop xray-bridge 2>/dev/null; systemctl disable xray-bridge 2>/dev/null');
-                logger.info(`[Cascade] Bridge service stopped on ${bridgeNode.name}`);
-            } catch (err) {
-                logger.warn(`[Cascade] Bridge stop on undeploy: ${err.message}`);
-            } finally {
-                ssh.disconnect();
+            if (link.mode === 'forward' && bridgeNode.type === 'xray' && bridgeNode.active) {
+                try {
+                    await this._deployPortalConfig(bridgeNode, { excludeLinkIds: [link._id] });
+                } catch (err) {
+                    logger.warn(`[Cascade] Bridge node redeploy on forward undeploy: ${err.message}`);
+                }
+            } else {
+                const ssh = new NodeSSH(bridgeNode);
+                try {
+                    await ssh.connect();
+                    await ssh.exec('systemctl stop xray-bridge 2>/dev/null; systemctl disable xray-bridge 2>/dev/null');
+                    logger.info(`[Cascade] Bridge service stopped on ${bridgeNode.name}`);
+                } catch (err) {
+                    logger.warn(`[Cascade] Bridge stop on undeploy: ${err.message}`);
+                } finally {
+                    ssh.disconnect();
+                }
             }
         }
 
-        await CascadeLink.updateOne({ _id: link._id }, { $set: { status: 'pending', lastError: '' } });
         await this._updateNodeRoles();
         await this._invalidateTopologyCache();
     }
@@ -170,9 +206,18 @@ class CascadeService {
         const errors = [];
         let deployed = 0;
 
-        // 2. Deploy configs in order: head (pure Portal) → middle (Relays) → tail (pure Bridge)
-        for (let i = 0; i < orderedNodes.length; i++) {
-            const node = orderedNodes[i];
+        // All links in a chain must use the same mode
+        const modes = new Set(orderedLinks.map(l => l.mode || 'reverse'));
+        if (modes.size > 1) {
+            return { success: false, deployed: 0, errors: ['Mixed reverse/forward links in one chain are not supported'] };
+        }
+        const chainMode = modes.values().next().value;
+        const deployOrder = chainMode === 'forward' ? [...orderedNodes].reverse() : orderedNodes;
+        logger.info(`[Cascade] Chain mode: ${chainMode}, deploy order: ${deployOrder.map(n => n.name).join(' → ')}`);
+
+        // 2. Deploy configs in order
+        for (let i = 0; i < deployOrder.length; i++) {
+            const node = deployOrder[i];
             const nodeLinks = orderedLinks.filter(
                 l => String(l.portalNode._id || l.portalNode) === String(node._id) ||
                      String(l.bridgeNode._id || l.bridgeNode) === String(node._id)
@@ -181,10 +226,9 @@ class CascadeService {
             try {
                 await this._deployNodeInChain(node, nodeLinks, orderedLinks);
                 deployed++;
-                logger.info(`[Cascade] Deployed node ${i + 1}/${orderedNodes.length}: ${node.name}`);
+                logger.info(`[Cascade] Deployed node ${i + 1}/${deployOrder.length}: ${node.name}`);
 
-                // Wait between nodes for proper service registration
-                if (i < orderedNodes.length - 1) {
+                if (i < deployOrder.length - 1) {
                     await new Promise(r => setTimeout(r, 2000));
                 }
             } catch (err) {
@@ -308,36 +352,50 @@ class CascadeService {
     /**
      * Deploy a single node within a chain context.
      * Determines if node is Portal, Relay, or Bridge and applies appropriate config.
+     * Handles both reverse and forward mode chains.
      */
     async _deployNodeInChain(node, nodeLinks, allChainLinks) {
         const nodeId = String(node._id);
 
-        // Find links where this node is portal (downstream) and bridge (upstream)
         const asPortalLinks = allChainLinks.filter(l => String(l.portalNode._id || l.portalNode) === nodeId);
         const asBridgeLinks = allChainLinks.filter(l => String(l.bridgeNode._id || l.bridgeNode) === nodeId);
 
         const isPortal = asPortalLinks.length > 0;
         const isBridge = asBridgeLinks.length > 0;
 
-        if (isPortal && !isBridge) {
-            // Pure Portal (head of chain)
-            await this._deployPortalConfig(node);
-            for (const link of asPortalLinks) {
-                await this._openFirewallPort(node, link.tunnelPort || 10086);
+        // Determine chain mode from any of the links
+        const chainMode = (asPortalLinks[0]?.mode || asBridgeLinks[0]?.mode) || 'reverse';
+
+        if (chainMode === 'forward') {
+            if (isPortal) {
+                await this._deployPortalConfig(node);
             }
-        } else if (isBridge && isPortal) {
-            // Relay (middle of chain)
-            const upstreamLink = asBridgeLinks[0];
-            const upstreamPortal = await HyNode.findById(upstreamLink.portalNode);
-            await this._deployRelayNode(node, upstreamLink, upstreamPortal, asPortalLinks);
-            for (const link of asPortalLinks) {
-                await this._openFirewallPort(node, link.tunnelPort || 10086);
+            if (isBridge) {
+                // Deploy all forward-hop inbounds at once to avoid overwriting
+                await this._deployForwardHopConfig(node, asBridgeLinks);
+                for (const link of asBridgeLinks) {
+                    await this._openFirewallPort(node, link.tunnelPort || 10086);
+                }
             }
-        } else if (isBridge && !isPortal) {
-            // Pure Bridge (tail of chain)
-            const upstreamLink = asBridgeLinks[0];
-            const upstreamPortal = await HyNode.findById(upstreamLink.portalNode);
-            await this._deployPureBridge(node, upstreamLink, upstreamPortal);
+        } else {
+            // Reverse chain: original logic
+            if (isPortal && !isBridge) {
+                await this._deployPortalConfig(node);
+                for (const link of asPortalLinks) {
+                    await this._openFirewallPort(node, link.tunnelPort || 10086);
+                }
+            } else if (isBridge && isPortal) {
+                const upstreamLink = asBridgeLinks[0];
+                const upstreamPortal = await HyNode.findById(upstreamLink.portalNode);
+                await this._deployRelayNode(node, upstreamLink, upstreamPortal, asPortalLinks);
+                for (const link of asPortalLinks) {
+                    await this._openFirewallPort(node, link.tunnelPort || 10086);
+                }
+            } else if (isBridge && !isPortal) {
+                const upstreamLink = asBridgeLinks[0];
+                const upstreamPortal = await HyNode.findById(upstreamLink.portalNode);
+                await this._deployPureBridge(node, upstreamLink, upstreamPortal);
+            }
         }
     }
 
@@ -414,19 +472,77 @@ class CascadeService {
     }
 
     /**
-     * Health-check a single cascade link by verifying ESTABLISHED connections
-     * on the Portal's tunnel port.
+     * Deploy forward-chain hop config to a node (bridge/relay in forward mode).
+     * If the node is an existing standalone Xray server, applies forward-hop inbound
+     * to its config. Otherwise deploys a standalone forward-hop config.
+     * @param {Object} node - HyNode document
+     * @param {Array} hopLinks - Array of CascadeLink documents for this node
+     */
+    async _deployForwardHopConfig(node, hopLinks) {
+        if (!node.ssh?.password && !node.ssh?.privateKey) {
+            throw new Error(`Forward hop node ${node.name} has no SSH credentials`);
+        }
+
+        // Existing Xray server: cascade inbounds are added via _deployPortalConfig
+        if (node.type === 'xray' && node.active && node.status !== 'error') {
+            await this._deployPortalConfig(node);
+            return;
+        }
+
+        // Standalone: generate combined config with all hop inbounds
+        const hopConfig = configGenerator.generateForwardHopConfig(hopLinks);
+        const serviceUnit = configGenerator.generateBridgeSystemdService();
+
+        const ssh = new NodeSSH(node);
+        try {
+            await ssh.connect();
+
+            const xrayCheck = await ssh.exec('command -v xray');
+            if (!xrayCheck.stdout || !xrayCheck.stdout.trim()) {
+                logger.info(`[Cascade] Installing Xray on forward-hop ${node.name}`);
+                await ssh.exec(
+                    'curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh -o /tmp/xray-install.sh ' +
+                    '&& chmod +x /tmp/xray-install.sh && bash /tmp/xray-install.sh install 2>&1 && rm -f /tmp/xray-install.sh'
+                );
+            }
+
+            await ssh.exec('mkdir -p /usr/local/etc/xray-bridge');
+            await ssh.uploadContent(hopConfig, '/usr/local/etc/xray-bridge/config.json');
+            await ssh.uploadContent(serviceUnit, '/etc/systemd/system/xray-bridge.service');
+            await ssh.exec('systemctl daemon-reload && systemctl enable xray-bridge && systemctl restart xray-bridge');
+
+            const statusResult = await ssh.exec('sleep 1 && systemctl is-active xray-bridge');
+            const isActive = (statusResult.stdout || '').trim() === 'active';
+            if (!isActive) {
+                const logs = await ssh.exec('journalctl -u xray-bridge --no-pager -n 20');
+                throw new Error(`Forward-hop service not active. Logs: ${(logs.stdout || logs.stderr || '').slice(0, 500)}`);
+            }
+
+            logger.info(`[Cascade] Forward-hop config deployed to ${node.name}`);
+        } finally {
+            ssh.disconnect();
+        }
+    }
+
+    /**
+     * Health-check a single cascade link.
+     * Reverse: verify ESTABLISHED connections on Portal's tunnel port.
+     * Forward: verify TCP connectivity to Bridge's tunnel port.
      */
     async healthCheckLink(link) {
-        const portalNode = await HyNode.findById(link.portalNode);
-        if (!portalNode) return false;
+        const isForward = link.mode === 'forward';
+        const checkNodeId = isForward ? link.bridgeNode : link.portalNode;
+        const checkNode = await HyNode.findById(checkNodeId);
+        if (!checkNode) return false;
 
         const tunnelPort = link.tunnelPort || 10086;
 
         try {
             const [healthy, latencyMs] = await Promise.all([
-                this._checkTunnel(portalNode, tunnelPort),
-                this._measureTcpLatency(portalNode.ip, tunnelPort),
+                isForward
+                    ? this._measureTcpLatency(checkNode.ip, tunnelPort).then(ms => ms !== null)
+                    : this._checkTunnel(checkNode, tunnelPort),
+                this._measureTcpLatency(checkNode.ip, tunnelPort),
             ]);
 
             const prevStatus = link.status;
@@ -436,7 +552,7 @@ class CascadeService {
                 $set: {
                     status:          newStatus,
                     lastHealthCheck: new Date(),
-                    lastError:       healthy ? '' : 'No ESTABLISHED tunnel connections',
+                    lastError:       healthy ? '' : (isForward ? 'Bridge unreachable on tunnel port' : 'No ESTABLISHED tunnel connections'),
                     latencyMs:       latencyMs,
                 },
             });
@@ -531,6 +647,9 @@ class CascadeService {
                 latencyMs: l.latencyMs,
                 tunnelProtocol: l.tunnelProtocol,
                 tunnelTransport: l.tunnelTransport,
+                mode: l.mode || 'reverse',
+                muxEnabled: l.muxEnabled || false,
+                tunnelSecurity: l.tunnelSecurity || 'none',
             },
         }));
 
@@ -606,23 +725,49 @@ class CascadeService {
     // ==================== INTERNAL HELPERS ====================
 
     /**
-     * Regenerate and upload the Portal node's full Xray config, including
-     * all reverse-portal settings from its active cascade links.
+     * Regenerate and upload a node's full Xray config, including
+     * reverse-portal and/or forward-chain settings from its active cascade links.
+     * @param {Object} portalNode - HyNode document
+     * @param {Object} [opts]
+     * @param {Array<string>} [opts.excludeLinkIds] - Link IDs to exclude (used during undeploy)
      */
-    async _deployPortalConfig(portalNode) {
+    async _deployPortalConfig(portalNode, opts = {}) {
         const syncService = require('./syncService');
         const users = await syncService._getUsersForNode(portalNode);
 
         const configStr = configGenerator.generateXrayConfig(portalNode, users);
         const config = JSON.parse(configStr);
 
-        const portalLinks = await CascadeLink.find({
+        const excludeSet = new Set((opts.excludeLinkIds || []).map(String));
+
+        const allPortalLinks = (await CascadeLink.find({
             portalNode: portalNode._id,
             active: true,
-        });
+        }).populate('bridgeNode')).filter(l => !excludeSet.has(String(l._id)));
+
+        const reverseLinks = allPortalLinks.filter(l => l.mode !== 'forward');
+        const forwardLinks = allPortalLinks.filter(l => l.mode === 'forward');
 
         const inboundTag = portalNode.xray?.inboundTag || 'vless-in';
-        configGenerator.applyReversePortal(config, portalLinks, inboundTag);
+
+        if (reverseLinks.length > 0) {
+            configGenerator.applyReversePortal(config, reverseLinks, inboundTag);
+        }
+        if (forwardLinks.length > 0) {
+            configGenerator.applyForwardChain(config, forwardLinks, inboundTag);
+        }
+
+        const forwardHopLinks = (await CascadeLink.find({
+            bridgeNode: portalNode._id,
+            mode: 'forward',
+            active: true,
+        })).filter(l => !excludeSet.has(String(l._id)));
+        if (forwardHopLinks.length > 0) {
+            configGenerator.applyForwardHopInbound(config, forwardHopLinks);
+        }
+
+        // geoip:private block must be the very last routing rule
+        configGenerator.ensurePrivateIpBlock(config);
 
         const finalConfig = JSON.stringify(config, null, 2);
 
