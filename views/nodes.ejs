@@ -253,55 +253,206 @@
 
     <!-- Add Link Modal -->
     <div class="modal-overlay" id="addLinkModal">
-        <div class="modal-card">
+        <div class="modal-card modal-lg">
             <div class="modal-header">
                 <h3><i class="ti ti-link"></i> <%= t('network.addLink') %></h3>
                 <button class="modal-close" id="modalClose"><i class="ti ti-x"></i></button>
             </div>
             <form id="addLinkForm" class="modal-body">
+                <!-- Basic Settings -->
+                <div class="form-section">
+                    <div class="form-section-title"><i class="ti ti-settings"></i> Basic Settings</div>
+                    <div class="form-group">
+                        <label><%= t('network.linkName') %></label>
+                        <input type="text" name="name" class="form-input" required placeholder="e.g. YandexCloud → France">
+                    </div>
+                    
+                    <!-- Mode Selection -->
+                    <div class="form-group">
+                        <label>Connection Mode</label>
+                        <div class="mode-selector">
+                            <label class="mode-option selected" data-mode="reverse">
+                                <input type="radio" name="mode" value="reverse" checked>
+                                <div class="mode-card">
+                                    <i class="ti ti-arrows-exchange"></i>
+                                    <span class="mode-title">Reverse Proxy</span>
+                                    <span class="mode-desc">Bridge initiates connection to Portal. Works behind NAT.</span>
+                                </div>
+                            </label>
+                            <label class="mode-option" data-mode="forward">
+                                <input type="radio" name="mode" value="forward">
+                                <div class="mode-card">
+                                    <i class="ti ti-arrow-right"></i>
+                                    <span class="mode-title">Forward Chain</span>
+                                    <span class="mode-desc">Portal connects through Bridge. Both need public IP.</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.portalNode') %> <span class="hint">(Entry point)</span></label>
+                            <select name="portalNodeId" class="form-input" id="selectPortal" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.bridgeNode') %> <span class="hint">(Exit point)</span></label>
+                            <select name="bridgeNodeId" class="form-input" id="selectBridge" required></select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tunnel Settings -->
+                <div class="form-section">
+                    <div class="form-section-title"><i class="ti ti-shield-lock"></i> Tunnel Settings</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.tunnelPort') %></label>
+                            <input type="number" name="tunnelPort" class="form-input" value="10086" min="1" max="65535">
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.tunnelProtocol') %></label>
+                            <select name="tunnelProtocol" class="form-input">
+                                <option value="vless">VLESS</option>
+                                <option value="vmess">VMess</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label><%= t('network.tunnelTransport') %></label>
+                            <select name="tunnelTransport" class="form-input" id="tunnelTransport">
+                                <option value="tcp">TCP</option>
+                                <option value="ws">WebSocket</option>
+                                <option value="grpc">gRPC</option>
+                                <option value="xhttp">XHTTP (SplitHTTP)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label><%= t('network.tunnelSecurity') %></label>
+                            <select name="tunnelSecurity" class="form-input" id="tunnelSecurity">
+                                <option value="none">None</option>
+                                <option value="tls">TLS</option>
+                                <option value="reality">REALITY</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REALITY Settings (hidden by default) -->
+                <div class="form-section reality-settings" id="realitySettings" style="display: none;">
+                    <div class="form-section-title"><i class="ti ti-eye-off"></i> REALITY Settings</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Destination <span class="hint">(SNI target)</span></label>
+                            <input type="text" name="realityDest" class="form-input" value="www.google.com:443" placeholder="www.google.com:443">
+                        </div>
+                        <div class="form-group">
+                            <label>Server Names</label>
+                            <input type="text" name="realitySni" class="form-input" value="www.google.com" placeholder="www.google.com">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Private Key <span class="hint">(server)</span></label>
+                            <input type="text" name="realityPrivateKey" class="form-input" placeholder="Base64 private key">
+                        </div>
+                        <div class="form-group">
+                            <label>Public Key <span class="hint">(client)</span></label>
+                            <input type="text" name="realityPublicKey" class="form-input" placeholder="Base64 public key">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Short IDs</label>
+                            <input type="text" name="realityShortIds" class="form-input" value="" placeholder="Optional, comma-separated">
+                        </div>
+                        <div class="form-group">
+                            <label>Fingerprint</label>
+                            <select name="realityFingerprint" class="form-input">
+                                <option value="chrome">Chrome</option>
+                                <option value="firefox">Firefox</option>
+                                <option value="safari">Safari</option>
+                                <option value="ios">iOS</option>
+                                <option value="android">Android</option>
+                                <option value="random">Random</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnGenerateReality">
+                        <i class="ti ti-key"></i> Generate Key Pair
+                    </button>
+                </div>
+
+                <!-- Advanced Settings (collapsible) -->
+                <details class="form-section-collapse">
+                    <summary class="form-section-title clickable">
+                        <i class="ti ti-adjustments"></i> Advanced Settings
+                        <i class="ti ti-chevron-down toggle-icon"></i>
+                    </summary>
+                    
+                    <!-- MUX Settings -->
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="muxEnabled" id="muxEnabled">
+                            <span>Enable MUX <span class="hint">(reduces latency for many connections)</span></span>
+                        </label>
+                    </div>
+                    <div class="mux-settings" id="muxSettings" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Concurrency</label>
+                                <input type="number" name="muxConcurrency" class="form-input" value="8" min="1" max="64">
+                            </div>
+                            <div class="form-group">
+                                <label>XUDP Concurrency</label>
+                                <input type="number" name="muxXudpConcurrency" class="form-input" value="16" min="1" max="64">
+                            </div>
+                            <div class="form-group">
+                                <label>UDP 443</label>
+                                <select name="muxXudpProxyUDP443" class="form-input">
+                                    <option value="reject">Reject</option>
+                                    <option value="allow">Allow</option>
+                                    <option value="skip">Skip</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Geo-Routing -->
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="geoRoutingEnabled" id="geoRoutingEnabled">
+                            <span>Enable Geo-Routing <span class="hint">(route specific traffic through this link)</span></span>
+                        </label>
+                    </div>
+                    <div class="geo-settings" id="geoSettings" style="display: none;">
+                        <div class="form-group">
+                            <label>Domains <span class="hint">(one per line: geosite:netflix, domain:google.com)</span></label>
+                            <textarea name="geoRoutingDomains" class="form-input" rows="2" placeholder="geosite:netflix&#10;domain:google.com"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>GeoIP <span class="hint">(one per line: geoip:us, geoip:de)</span></label>
+                            <textarea name="geoRoutingGeoip" class="form-input" rows="2" placeholder="geoip:us&#10;geoip:de"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Fallback -->
+                    <div class="form-group">
+                        <label>Fallback Tag <span class="hint">(used when link is down)</span></label>
+                        <select name="fallbackTag" class="form-input">
+                            <option value="direct">Direct (bypass proxy)</option>
+                            <option value="block">Block traffic</option>
+                        </select>
+                    </div>
+                </details>
+
+                <!-- Actions -->
                 <div class="form-group">
-                    <label><%= t('network.linkName') %></label>
-                    <input type="text" name="name" class="form-input" required placeholder="YandexCloud → France">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label><%= t('network.portalNode') %></label>
-                        <select name="portalNodeId" class="form-input" id="selectPortal" required></select>
-                    </div>
-                    <div class="form-group">
-                        <label><%= t('network.bridgeNode') %></label>
-                        <select name="bridgeNodeId" class="form-input" id="selectBridge" required></select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label><%= t('network.tunnelPort') %></label>
-                        <input type="number" name="tunnelPort" class="form-input" value="10086" min="1" max="65535">
-                    </div>
-                    <div class="form-group">
-                        <label><%= t('network.tunnelProtocol') %></label>
-                        <select name="tunnelProtocol" class="form-input">
-                            <option value="vless">VLESS</option>
-                            <option value="vmess">VMess</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label><%= t('network.tunnelTransport') %></label>
-                        <select name="tunnelTransport" class="form-input">
-                            <option value="tcp">TCP</option>
-                            <option value="ws">WebSocket</option>
-                            <option value="grpc">gRPC</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label><%= t('network.tunnelSecurity') %></label>
-                        <select name="tunnelSecurity" class="form-input">
-                            <option value="none">None</option>
-                            <option value="tls">TLS</option>
-                        </select>
-                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="autoDeploy" checked>
+                        <span><%= t('network.autoDeploy') || 'Auto-deploy chain after creation' %></span>
+                    </label>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn" id="modalCancel"><%= t('common.cancel') %></button>
