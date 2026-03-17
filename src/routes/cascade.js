@@ -33,77 +33,6 @@ function generateUuid() {
     return require('crypto').randomUUID();
 }
 
-/**
- * Generate X25519 key pair for REALITY (Xray format)
- * POST /cascade/generate-reality-keys
- * 
- * Uses `xray x25519` command on a server if nodeId is provided,
- * otherwise generates locally (may not work with all Xray versions).
- */
-router.post('/generate-reality-keys', requireScope('nodes:write'), async (req, res) => {
-    try {
-        const { nodeId } = req.body;
-        
-        // If nodeId provided, generate on that server using xray command
-        if (nodeId && isValidObjectId(nodeId)) {
-            const node = await HyNode.findById(nodeId);
-            if (node && (node.ssh?.password || node.ssh?.privateKey)) {
-                const NodeSSH = require('../services/nodeSSH');
-                const ssh = new NodeSSH(node);
-                try {
-                    await ssh.connect();
-                    const result = await ssh.exec('xray x25519 2>/dev/null || /usr/local/bin/xray x25519');
-                    ssh.disconnect();
-                    
-                    // Parse output: "Private key: xxx\nPublic key: xxx"
-                    const lines = result.stdout.split('\n');
-                    let privateKey = '', publicKey = '';
-                    for (const line of lines) {
-                        if (line.includes('Private key:')) {
-                            privateKey = line.split(':')[1]?.trim() || '';
-                        } else if (line.includes('Public key:')) {
-                            publicKey = line.split(':')[1]?.trim() || '';
-                        }
-                    }
-                    
-                    if (privateKey && publicKey) {
-                        return res.json({ privateKey, publicKey, generatedOn: node.name });
-                    }
-                } catch (sshErr) {
-                    logger.warn(`[Cascade API] SSH key generation failed: ${sshErr.message}`);
-                }
-            }
-        }
-        
-        // Fallback: generate locally using Node.js crypto
-        // Note: Local generation may not work with all Xray versions
-        const { generateKeyPairSync } = require('crypto');
-        const keyPair = generateKeyPairSync('x25519');
-        
-        // X25519 PKCS8 DER structure: fixed header (16 bytes) + 0x04 0x20 + 32 bytes raw key
-        // X25519 SPKI DER structure: fixed header (12 bytes) + 32 bytes raw key
-        const pkcs8 = keyPair.privateKey.export({ type: 'pkcs8', format: 'der' });
-        const spki = keyPair.publicKey.export({ type: 'spki', format: 'der' });
-        
-        // Extract raw 32-byte keys (last 32 bytes)
-        const privateKeyRaw = pkcs8.slice(pkcs8.length - 32);
-        const publicKeyRaw = spki.slice(spki.length - 32);
-        
-        // Warn if we're falling back to local generation
-        logger.warn('[Cascade API] Generated REALITY keys locally. For best compatibility, select a bridge node with Xray installed.');
-        
-        res.json({
-            privateKey: privateKeyRaw.toString('base64'),
-            publicKey: publicKeyRaw.toString('base64'),
-            generatedOn: 'local',
-            warning: 'Keys generated locally. If deploy fails, try selecting a bridge node first and regenerate.',
-        });
-    } catch (error) {
-        logger.error(`[Cascade API] Generate REALITY keys error: ${error.message}`);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // ==================== LINKS CRUD ====================
 
 /**
@@ -156,15 +85,11 @@ router.get('/links/:id', requireScope('nodes:read'), async (req, res) => {
  */
 router.post('/links', requireScope('nodes:write'), async (req, res) => {
     try {
-        const { name, mode, portalNodeId, bridgeNodeId, tunnelPort, tunnelProtocol,
+        const { name, portalNodeId, bridgeNodeId, tunnelPort, tunnelProtocol,
             tunnelSecurity, tunnelTransport, tunnelDomain, tunnelUuid,
             tcpFastOpen, tcpKeepAlive, tcpNoDelay,
             wsPath, wsHost, grpcServiceName,
-            xhttpPath, xhttpHost, xhttpMode,
-            realityDest, realitySni, realityPrivateKey, realityPublicKey,
-            realityShortIds, realityFingerprint,
-            muxEnabled, muxConcurrency, muxXudpConcurrency, muxXudpProxyUDP443,
-            fallbackTag } = req.body;
+            xhttpPath, xhttpHost, xhttpMode } = req.body;
 
         if (!name || !portalNodeId || !bridgeNodeId) {
             return res.status(400).json({ error: 'name, portalNodeId and bridgeNodeId are required' });
@@ -203,9 +128,8 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             });
         }
 
-        const linkData = {
+        const link = await CascadeLink.create({
             name,
-            mode: mode || 'reverse',
             portalNode: portalNodeId,
             bridgeNode: bridgeNodeId,
             tunnelUuid: tunnelUuid || generateUuid(),
@@ -223,50 +147,7 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             xhttpPath: xhttpPath || '/cascade',
             xhttpHost: xhttpHost || '',
             xhttpMode: xhttpMode || 'auto',
-            fallbackTag: fallbackTag || 'direct',
-        };
-
-        // REALITY settings (for tunnelSecurity === 'reality')
-        if (tunnelSecurity === 'reality') {
-            // Validate required REALITY fields
-            if (!realityPrivateKey || !realityPublicKey) {
-                return res.status(400).json({ 
-                    error: 'REALITY requires privateKey and publicKey. Use "Generate Key Pair" button.' 
-                });
-            }
-            linkData.realityDest = realityDest || 'www.google.com:443';
-            linkData.realitySni = Array.isArray(realitySni) && realitySni.length > 0 
-                ? realitySni.filter(s => s && s.length > 0) 
-                : ['www.google.com'];
-            linkData.realityPrivateKey = realityPrivateKey;
-            linkData.realityPublicKey = realityPublicKey;
-            // Filter empty shortIds and provide default if none
-            const validShortIds = Array.isArray(realityShortIds) 
-                ? realityShortIds.filter(id => id && id.length > 0)
-                : [];
-            linkData.realityShortIds = validShortIds.length > 0 ? validShortIds : ['0123456789abcdef'];
-            linkData.realityFingerprint = realityFingerprint || 'chrome';
-        }
-
-        // MUX settings
-        if (muxEnabled) {
-            linkData.muxEnabled = true;
-            linkData.muxConcurrency = parseInt(muxConcurrency) || 8;
-            linkData.muxXudpConcurrency = parseInt(muxXudpConcurrency) || 16;
-            linkData.muxXudpProxyUDP443 = muxXudpProxyUDP443 || 'reject';
-        }
-
-        // Geo-routing settings
-        const { geoRouting } = req.body;
-        if (geoRouting?.enabled) {
-            linkData.geoRouting = {
-                enabled: true,
-                domains: Array.isArray(geoRouting.domains) ? geoRouting.domains : [],
-                geoip: Array.isArray(geoRouting.geoip) ? geoRouting.geoip : [],
-            };
-        }
-
-        const link = await CascadeLink.create(linkData);
+        });
 
         const populated = await CascadeLink.findById(link._id)
             .populate('portalNode', 'name ip flag status')
@@ -301,15 +182,11 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
         }
 
         const allowedFields = [
-            'name', 'mode', 'tunnelPort', 'tunnelDomain', 'tunnelProtocol',
+            'name', 'tunnelPort', 'tunnelDomain', 'tunnelProtocol',
             'tunnelSecurity', 'tunnelTransport', 'tunnelUuid',
             'tcpFastOpen', 'tcpKeepAlive', 'tcpNoDelay', 'active', 'priority',
             'wsPath', 'wsHost', 'grpcServiceName',
             'xhttpPath', 'xhttpHost', 'xhttpMode',
-            'realityDest', 'realitySni', 'realityPrivateKey', 'realityPublicKey',
-            'realityShortIds', 'realityFingerprint',
-            'muxEnabled', 'muxConcurrency', 'muxXudpConcurrency', 'muxXudpProxyUDP443',
-            'fallbackTag',
         ];
 
         const updates = {};
