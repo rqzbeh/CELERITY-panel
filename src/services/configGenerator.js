@@ -728,9 +728,20 @@ function buildCascadeTunnelStreamSettings(link) {
             tcpNoDelay: link.tcpNoDelay !== false,
         };
     } else if (transport === 'ws') {
-        stream.wsSettings = { path: '/' };
+        stream.wsSettings = {
+            path: link.wsPath || '/cascade',
+            headers: link.wsHost ? { Host: link.wsHost } : {},
+        };
     } else if (transport === 'grpc') {
-        stream.grpcSettings = { serviceName: 'cascade' };
+        stream.grpcSettings = {
+            serviceName: link.grpcServiceName || 'cascade',
+        };
+    } else if (transport === 'xhttp') {
+        stream.xhttpSettings = {
+            path: link.xhttpPath || '/cascade',
+            host: link.xhttpHost || '',
+            mode: link.xhttpMode || 'auto',
+        };
     }
 
     return stream;

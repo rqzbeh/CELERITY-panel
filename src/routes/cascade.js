@@ -10,8 +10,13 @@ const mongoose = require('mongoose');
 const CascadeLink = require('../models/cascadeLinkModel');
 const HyNode = require('../models/hyNodeModel');
 const cascadeService = require('../services/cascadeService');
+const cache = require('../services/cacheService');
 const logger = require('../utils/logger');
 const { requireScope } = require('../middleware/auth');
+
+async function invalidateCascadeCache() {
+    await cache.invalidateAllSubscriptions();
+}
 
 const deployLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -82,7 +87,9 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
     try {
         const { name, portalNodeId, bridgeNodeId, tunnelPort, tunnelProtocol,
             tunnelSecurity, tunnelTransport, tunnelDomain, tunnelUuid,
-            tcpFastOpen, tcpKeepAlive, tcpNoDelay } = req.body;
+            tcpFastOpen, tcpKeepAlive, tcpNoDelay,
+            wsPath, wsHost, grpcServiceName,
+            xhttpPath, xhttpHost, xhttpMode } = req.body;
 
         if (!name || !portalNodeId || !bridgeNodeId) {
             return res.status(400).json({ error: 'name, portalNodeId and bridgeNodeId are required' });
@@ -109,6 +116,18 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
         if (!portalNode) return res.status(404).json({ error: 'Portal node not found' });
         if (!bridgeNode) return res.status(404).json({ error: 'Bridge node not found' });
 
+        // Check if port is already used on this portal node
+        const existingLink = await CascadeLink.findOne({
+            portalNode: portalNodeId,
+            tunnelPort: port,
+            active: true,
+        });
+        if (existingLink) {
+            return res.status(400).json({
+                error: `Port ${port} is already used by link "${existingLink.name}" on this node`,
+            });
+        }
+
         const link = await CascadeLink.create({
             name,
             portalNode: portalNodeId,
@@ -122,6 +141,12 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             tcpFastOpen: tcpFastOpen !== false,
             tcpKeepAlive: parseInt(tcpKeepAlive) || 100,
             tcpNoDelay: tcpNoDelay !== false,
+            wsPath: wsPath || '/cascade',
+            wsHost: wsHost || '',
+            grpcServiceName: grpcServiceName || 'cascade',
+            xhttpPath: xhttpPath || '/cascade',
+            xhttpHost: xhttpHost || '',
+            xhttpMode: xhttpMode || 'auto',
         });
 
         const populated = await CascadeLink.findById(link._id)
@@ -129,6 +154,9 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             .populate('bridgeNode', 'name ip flag status');
 
         logger.info(`[Cascade API] Created link ${name}: ${portalNode.name} -> ${bridgeNode.name}`);
+
+        // Invalidate subscription cache (cascade affects node roles)
+        await invalidateCascadeCache();
 
         // Auto-deploy chain if requested
         if (req.body.autoDeploy) {
@@ -157,6 +185,8 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
             'name', 'tunnelPort', 'tunnelDomain', 'tunnelProtocol',
             'tunnelSecurity', 'tunnelTransport', 'tunnelUuid',
             'tcpFastOpen', 'tcpKeepAlive', 'tcpNoDelay', 'active', 'priority',
+            'wsPath', 'wsHost', 'grpcServiceName',
+            'xhttpPath', 'xhttpHost', 'xhttpMode',
         ];
 
         const updates = {};
@@ -172,6 +202,22 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
                 return res.status(400).json({ error: 'tunnelPort must be between 1 and 65535' });
             }
             updates.tunnelPort = port;
+
+            // Check if port is already used by another link on the same portal
+            const currentLink = await CascadeLink.findById(req.params.id);
+            if (currentLink) {
+                const conflictingLink = await CascadeLink.findOne({
+                    portalNode: currentLink.portalNode,
+                    tunnelPort: port,
+                    active: true,
+                    _id: { $ne: req.params.id },
+                });
+                if (conflictingLink) {
+                    return res.status(400).json({
+                        error: `Port ${port} is already used by link "${conflictingLink.name}" on this node`,
+                    });
+                }
+            }
         }
 
         // Geo-routing settings
@@ -192,6 +238,9 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
         if (!link) return res.status(404).json({ error: 'Cascade link not found' });
 
         logger.info(`[Cascade API] Updated link ${link.name}`);
+
+        // Invalidate subscription cache
+        await invalidateCascadeCache();
 
         // Auto-redeploy chain if link was deployed and settings changed
         if (req.body.autoRedeploy && ['deployed', 'online', 'offline'].includes(link.status)) {
@@ -264,6 +313,10 @@ router.patch('/links/:id/reconnect', requireScope('nodes:write'), async (req, re
          .populate('bridgeNode', 'name ip flag status');
 
         logger.info(`[Cascade API] Reconnected link ${updated.name}`);
+
+        // Invalidate subscription cache
+        await invalidateCascadeCache();
+
         res.json(updated);
     } catch (error) {
         logger.error(`[Cascade API] Reconnect error: ${error.message}`);
@@ -288,6 +341,9 @@ router.delete('/links/:id', requireScope('nodes:write'), async (req, res) => {
         }
 
         await CascadeLink.findByIdAndDelete(req.params.id);
+
+        // Invalidate subscription cache
+        await invalidateCascadeCache();
         logger.info(`[Cascade API] Deleted link ${link.name}`);
         res.json({ success: true, message: 'Cascade link deleted' });
     } catch (error) {
@@ -314,6 +370,10 @@ router.post('/links/:id/deploy', requireScope('nodes:write'), deployLimiter, asy
         if (!link) return res.status(404).json({ error: 'Cascade link not found' });
 
         const result = await cascadeService.deployLink(link);
+
+        // Invalidate subscription cache after deploy
+        await invalidateCascadeCache();
+
         if (result.success) {
             res.json({ success: true, message: 'Cascade link deployed' });
         } else {
@@ -338,6 +398,10 @@ router.post('/links/:id/undeploy', requireScope('nodes:write'), deployLimiter, a
         if (!link) return res.status(404).json({ error: 'Cascade link not found' });
 
         await cascadeService.undeployLink(link);
+
+        // Invalidate subscription cache after undeploy
+        await invalidateCascadeCache();
+
         res.json({ success: true, message: 'Cascade link undeployed' });
     } catch (error) {
         logger.error(`[Cascade API] Undeploy error: ${error.message}`);
@@ -373,6 +437,9 @@ router.post('/chain/deploy', requireScope('nodes:write'), deployLimiter, async (
         }
 
         const result = await cascadeService.deployChain(startNodeId);
+
+        // Invalidate subscription cache after chain deploy
+        await invalidateCascadeCache();
 
         if (result.success) {
             res.json({

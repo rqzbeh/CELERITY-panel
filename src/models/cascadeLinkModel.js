@@ -18,11 +18,24 @@ const cascadeLinkSchema = new mongoose.Schema({
     tunnelDomain: { type: String, default: 'reverse.tunnel.internal' },
     tunnelProtocol: { type: String, enum: ['vless', 'vmess'], default: 'vless' },
     tunnelSecurity: { type: String, enum: ['none', 'tls'], default: 'none' },
-    tunnelTransport: { type: String, enum: ['tcp', 'ws', 'grpc'], default: 'tcp' },
+    tunnelTransport: { type: String, enum: ['tcp', 'ws', 'grpc', 'xhttp'], default: 'tcp' },
 
+    // TCP settings
     tcpFastOpen: { type: Boolean, default: true },
     tcpKeepAlive: { type: Number, default: 100 },
     tcpNoDelay: { type: Boolean, default: true },
+
+    // WebSocket settings
+    wsPath: { type: String, default: '/cascade' },
+    wsHost: { type: String, default: '' },
+
+    // gRPC settings
+    grpcServiceName: { type: String, default: 'cascade' },
+
+    // XHTTP (SplitHTTP) settings
+    xhttpPath: { type: String, default: '/cascade' },
+    xhttpHost: { type: String, default: '' },
+    xhttpMode: { type: String, enum: ['auto', 'packet-up', 'stream-up'], default: 'auto' },
 
     // Geo-routing: route specific domains/IPs through this bridge instead of the default
     geoRouting: {

@@ -75,10 +75,11 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label><%= t('network.tunnelTransport') %></label>
-                        <select name="tunnelTransport" class="form-input">
+                        <select name="tunnelTransport" class="form-input" id="tunnelTransport">
                             <option value="tcp">TCP</option>
                             <option value="ws">WebSocket</option>
                             <option value="grpc">gRPC</option>
+                            <option value="xhttp">XHTTP (SplitHTTP)</option>
                         </select>
                     </div>
                     <div class="form-group">
