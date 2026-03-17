@@ -147,6 +147,273 @@ class CascadeService {
     }
 
     /**
+     * Deploy an entire cascade chain in the correct order.
+     * Finds all connected links starting from any node in the chain,
+     * builds topological order (Portal → Relay → Bridge), and deploys
+     * configs + restarts services with proper delays.
+     *
+     * @param {string} startNodeId - Any node ID in the chain
+     * @returns {Promise<{success: boolean, deployed: number, errors: string[]}>}
+     */
+    async deployChain(startNodeId) {
+        logger.info(`[Cascade] Starting chain deployment from node ${startNodeId}`);
+
+        // 1. Find all links connected to this chain
+        const { orderedNodes, orderedLinks } = await this._buildChainOrder(startNodeId);
+
+        if (orderedLinks.length === 0) {
+            return { success: true, deployed: 0, errors: [], message: 'No active links found' };
+        }
+
+        logger.info(`[Cascade] Chain has ${orderedNodes.length} nodes, ${orderedLinks.length} links`);
+
+        const errors = [];
+        let deployed = 0;
+
+        // 2. Deploy configs in order: head (pure Portal) → middle (Relays) → tail (pure Bridge)
+        for (let i = 0; i < orderedNodes.length; i++) {
+            const node = orderedNodes[i];
+            const nodeLinks = orderedLinks.filter(
+                l => String(l.portalNode._id || l.portalNode) === String(node._id) ||
+                     String(l.bridgeNode._id || l.bridgeNode) === String(node._id)
+            );
+
+            try {
+                await this._deployNodeInChain(node, nodeLinks, orderedLinks);
+                deployed++;
+                logger.info(`[Cascade] Deployed node ${i + 1}/${orderedNodes.length}: ${node.name}`);
+
+                // Wait between nodes for proper service registration
+                if (i < orderedNodes.length - 1) {
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            } catch (err) {
+                errors.push(`${node.name}: ${err.message}`);
+                logger.error(`[Cascade] Failed to deploy ${node.name}: ${err.message}`);
+            }
+        }
+
+        // 3. Update link statuses after deployment
+        await new Promise(r => setTimeout(r, 3000));
+        for (const link of orderedLinks) {
+            await this.healthCheckLink(link).catch(() => {});
+        }
+
+        await this._updateNodeRoles();
+        await this._invalidateTopologyCache();
+
+        const success = errors.length === 0;
+        logger.info(`[Cascade] Chain deployment complete: ${deployed} nodes, ${errors.length} errors`);
+
+        return { success, deployed, errors };
+    }
+
+    /**
+     * Build topological order of nodes in the chain.
+     * Returns nodes ordered from head (pure Portal) to tail (pure Bridge).
+     */
+    async _buildChainOrder(startNodeId) {
+        // Get all active links
+        const allLinks = await CascadeLink.find({ active: true })
+            .populate('portalNode bridgeNode')
+            .lean();
+
+        if (allLinks.length === 0) {
+            return { orderedNodes: [], orderedLinks: [] };
+        }
+
+        // Build adjacency: nodeId -> { asPortal: [links], asBridge: [links] }
+        const nodeMap = new Map();
+        const linkSet = new Set();
+
+        const addNode = (node) => {
+            const id = String(node._id || node);
+            if (!nodeMap.has(id)) {
+                nodeMap.set(id, { node, asPortal: [], asBridge: [] });
+            }
+            return nodeMap.get(id);
+        };
+
+        for (const link of allLinks) {
+            const portalId = String(link.portalNode._id || link.portalNode);
+            const bridgeId = String(link.bridgeNode._id || link.bridgeNode);
+
+            addNode(link.portalNode).asPortal.push(link);
+            addNode(link.bridgeNode).asBridge.push(link);
+        }
+
+        // BFS to find all connected nodes starting from startNodeId
+        const visited = new Set();
+        const queue = [String(startNodeId)];
+        const connectedLinks = [];
+
+        while (queue.length > 0) {
+            const nodeId = queue.shift();
+            if (visited.has(nodeId)) continue;
+            visited.add(nodeId);
+
+            const entry = nodeMap.get(nodeId);
+            if (!entry) continue;
+
+            for (const link of [...entry.asPortal, ...entry.asBridge]) {
+                const linkId = String(link._id);
+                if (!linkSet.has(linkId)) {
+                    linkSet.add(linkId);
+                    connectedLinks.push(link);
+                }
+
+                const portalId = String(link.portalNode._id || link.portalNode);
+                const bridgeId = String(link.bridgeNode._id || link.bridgeNode);
+
+                if (!visited.has(portalId)) queue.push(portalId);
+                if (!visited.has(bridgeId)) queue.push(bridgeId);
+            }
+        }
+
+        // Find head nodes (portals that are not bridges in this chain)
+        const bridgeIds = new Set(connectedLinks.map(l => String(l.bridgeNode._id || l.bridgeNode)));
+        const portalIds = new Set(connectedLinks.map(l => String(l.portalNode._id || l.portalNode)));
+
+        const headIds = [...portalIds].filter(id => !bridgeIds.has(id));
+
+        // Topological sort from heads
+        const orderedNodes = [];
+        const orderedNodeIds = new Set();
+        const toVisit = headIds.map(id => nodeMap.get(id)?.node).filter(Boolean);
+
+        while (toVisit.length > 0) {
+            const node = toVisit.shift();
+            const nodeId = String(node._id);
+
+            if (orderedNodeIds.has(nodeId)) continue;
+            orderedNodeIds.add(nodeId);
+            orderedNodes.push(node);
+
+            // Add downstream nodes (where this node is portal)
+            const entry = nodeMap.get(nodeId);
+            if (entry) {
+                for (const link of entry.asPortal) {
+                    const bridgeNode = link.bridgeNode;
+                    const bridgeId = String(bridgeNode._id || bridgeNode);
+                    if (!orderedNodeIds.has(bridgeId)) {
+                        toVisit.push(bridgeNode);
+                    }
+                }
+            }
+        }
+
+        return { orderedNodes, orderedLinks: connectedLinks };
+    }
+
+    /**
+     * Deploy a single node within a chain context.
+     * Determines if node is Portal, Relay, or Bridge and applies appropriate config.
+     */
+    async _deployNodeInChain(node, nodeLinks, allChainLinks) {
+        const nodeId = String(node._id);
+
+        // Find links where this node is portal (downstream) and bridge (upstream)
+        const asPortalLinks = allChainLinks.filter(l => String(l.portalNode._id || l.portalNode) === nodeId);
+        const asBridgeLinks = allChainLinks.filter(l => String(l.bridgeNode._id || l.bridgeNode) === nodeId);
+
+        const isPortal = asPortalLinks.length > 0;
+        const isBridge = asBridgeLinks.length > 0;
+
+        if (isPortal && !isBridge) {
+            // Pure Portal (head of chain)
+            await this._deployPortalConfig(node);
+            for (const link of asPortalLinks) {
+                await this._openFirewallPort(node, link.tunnelPort || 10086);
+            }
+        } else if (isBridge && isPortal) {
+            // Relay (middle of chain)
+            const upstreamLink = asBridgeLinks[0];
+            const upstreamPortal = await HyNode.findById(upstreamLink.portalNode);
+            await this._deployRelayNode(node, upstreamLink, upstreamPortal, asPortalLinks);
+            for (const link of asPortalLinks) {
+                await this._openFirewallPort(node, link.tunnelPort || 10086);
+            }
+        } else if (isBridge && !isPortal) {
+            // Pure Bridge (tail of chain)
+            const upstreamLink = asBridgeLinks[0];
+            const upstreamPortal = await HyNode.findById(upstreamLink.portalNode);
+            await this._deployPureBridge(node, upstreamLink, upstreamPortal);
+        }
+    }
+
+    /**
+     * Deploy Relay node config (middle of chain).
+     */
+    async _deployRelayNode(node, upstreamLink, upstreamPortal, downstreamLinks) {
+        if (!node.ssh?.password && !node.ssh?.privateKey) {
+            throw new Error(`Relay node ${node.name} has no SSH credentials`);
+        }
+
+        const relayConfig = configGenerator.generateRelayConfig(upstreamLink, upstreamPortal, downstreamLinks);
+        const serviceUnit = configGenerator.generateBridgeSystemdService();
+
+        const ssh = new NodeSSH(node);
+        try {
+            await ssh.connect();
+
+            // Ensure Xray is installed
+            const xrayCheck = await ssh.exec('command -v xray');
+            if (!xrayCheck.stdout || !xrayCheck.stdout.trim()) {
+                logger.info(`[Cascade] Installing Xray on relay ${node.name}`);
+                await ssh.exec(
+                    'curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh -o /tmp/xray-install.sh ' +
+                    '&& chmod +x /tmp/xray-install.sh && bash /tmp/xray-install.sh install 2>&1 && rm -f /tmp/xray-install.sh'
+                );
+            }
+
+            await ssh.exec('mkdir -p /usr/local/etc/xray-bridge');
+            await ssh.uploadContent(relayConfig, '/usr/local/etc/xray-bridge/config.json');
+            await ssh.uploadContent(serviceUnit, '/etc/systemd/system/xray-bridge.service');
+            await ssh.exec('systemctl daemon-reload && systemctl enable xray-bridge && systemctl restart xray-bridge');
+
+            logger.info(`[Cascade] Relay config deployed to ${node.name}`);
+        } finally {
+            ssh.disconnect();
+        }
+    }
+
+    /**
+     * Deploy pure Bridge node config (tail of chain).
+     */
+    async _deployPureBridge(node, upstreamLink, upstreamPortal) {
+        if (!node.ssh?.password && !node.ssh?.privateKey) {
+            throw new Error(`Bridge node ${node.name} has no SSH credentials`);
+        }
+
+        const bridgeConfig = configGenerator.generateBridgeConfig(upstreamLink, upstreamPortal);
+        const serviceUnit = configGenerator.generateBridgeSystemdService();
+
+        const ssh = new NodeSSH(node);
+        try {
+            await ssh.connect();
+
+            // Ensure Xray is installed
+            const xrayCheck = await ssh.exec('command -v xray');
+            if (!xrayCheck.stdout || !xrayCheck.stdout.trim()) {
+                logger.info(`[Cascade] Installing Xray on bridge ${node.name}`);
+                await ssh.exec(
+                    'curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh -o /tmp/xray-install.sh ' +
+                    '&& chmod +x /tmp/xray-install.sh && bash /tmp/xray-install.sh install 2>&1 && rm -f /tmp/xray-install.sh'
+                );
+            }
+
+            await ssh.exec('mkdir -p /usr/local/etc/xray-bridge');
+            await ssh.uploadContent(bridgeConfig, '/usr/local/etc/xray-bridge/config.json');
+            await ssh.uploadContent(serviceUnit, '/etc/systemd/system/xray-bridge.service');
+            await ssh.exec('systemctl daemon-reload && systemctl enable xray-bridge && systemctl restart xray-bridge');
+
+            logger.info(`[Cascade] Bridge config deployed to ${node.name}`);
+        } finally {
+            ssh.disconnect();
+        }
+    }
+
+    /**
      * Health-check a single cascade link by verifying ESTABLISHED connections
      * on the Portal's tunnel port.
      */

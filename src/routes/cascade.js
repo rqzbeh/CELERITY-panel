@@ -129,6 +129,14 @@ router.post('/links', requireScope('nodes:write'), async (req, res) => {
             .populate('bridgeNode', 'name ip flag status');
 
         logger.info(`[Cascade API] Created link ${name}: ${portalNode.name} -> ${bridgeNode.name}`);
+
+        // Auto-deploy chain if requested
+        if (req.body.autoDeploy) {
+            cascadeService.deployChain(portalNodeId).catch(err => {
+                logger.warn(`[Cascade API] Auto-deploy failed: ${err.message}`);
+            });
+        }
+
         res.status(201).json(populated);
     } catch (error) {
         logger.error(`[Cascade API] Create error: ${error.message}`);
@@ -184,6 +192,14 @@ router.put('/links/:id', requireScope('nodes:write'), async (req, res) => {
         if (!link) return res.status(404).json({ error: 'Cascade link not found' });
 
         logger.info(`[Cascade API] Updated link ${link.name}`);
+
+        // Auto-redeploy chain if link was deployed and settings changed
+        if (req.body.autoRedeploy && ['deployed', 'online', 'offline'].includes(link.status)) {
+            cascadeService.deployChain(link.portalNode._id || link.portalNode).catch(err => {
+                logger.warn(`[Cascade API] Auto-redeploy failed: ${err.message}`);
+            });
+        }
+
         res.json(link);
     } catch (error) {
         logger.error(`[Cascade API] Update error: ${error.message}`);
@@ -325,6 +341,54 @@ router.post('/links/:id/undeploy', requireScope('nodes:write'), deployLimiter, a
         res.json({ success: true, message: 'Cascade link undeployed' });
     } catch (error) {
         logger.error(`[Cascade API] Undeploy error: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== CHAIN DEPLOY ====================
+
+/**
+ * POST /cascade/chain/deploy — deploy entire cascade chain in correct order
+ * Accepts either nodeId or linkId to identify the chain
+ */
+router.post('/chain/deploy', requireScope('nodes:write'), deployLimiter, async (req, res) => {
+    try {
+        const { nodeId, linkId } = req.body;
+
+        let startNodeId;
+        if (nodeId) {
+            if (!isValidObjectId(nodeId)) {
+                return res.status(400).json({ error: 'Invalid nodeId' });
+            }
+            startNodeId = nodeId;
+        } else if (linkId) {
+            if (!isValidObjectId(linkId)) {
+                return res.status(400).json({ error: 'Invalid linkId' });
+            }
+            const link = await CascadeLink.findById(linkId);
+            if (!link) return res.status(404).json({ error: 'Link not found' });
+            startNodeId = link.portalNode;
+        } else {
+            return res.status(400).json({ error: 'nodeId or linkId is required' });
+        }
+
+        const result = await cascadeService.deployChain(startNodeId);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Chain deployed: ${result.deployed} nodes`,
+                deployed: result.deployed,
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                deployed: result.deployed,
+                errors: result.errors,
+            });
+        }
+    } catch (error) {
+        logger.error(`[Cascade API] Chain deploy error: ${error.message}`);
         res.status(500).json({ error: error.message });
     }
 });

@@ -568,6 +568,8 @@
             '<div class="info-actions">' +
             '<button class="btn btn-sm btn-success" id="btnDeploy" onclick="window._cascadeDeploy(\'' + lid + '\')">' +
             '<i class="ti ti-upload"></i> ' + (i18n.deploy || 'Deploy') + '</button>' +
+            '<button class="btn btn-sm btn-primary" id="btnDeployChain" onclick="window._cascadeDeployChain(\'' + lid + '\')">' +
+            '<i class="ti ti-link"></i> ' + (i18n.syncChain || 'Sync Chain') + '</button>' +
             '<button class="btn btn-sm btn-danger" id="btnDelete" onclick="window._cascadeDelete(\'' + lid + '\')">' +
             '<i class="ti ti-trash"></i> ' + (i18n.delete || 'Delete') + '</button>' +
             '</div>';
@@ -651,6 +653,7 @@
             tunnelProtocol: form.tunnelProtocol.value,
             tunnelTransport:form.tunnelTransport.value,
             tunnelSecurity: form.tunnelSecurity.value,
+            autoDeploy:     form.autoDeploy?.checked || false,
         };
 
         if (!data.name || !data.portalNodeId || !data.bridgeNodeId) {
@@ -685,7 +688,7 @@
     // ==================== CASCADE ACTIONS ====================
 
     function setActionLoading(msg) {
-        ['btnDeploy','btnDelete'].forEach(function (id) {
+        ['btnDeploy','btnDeployChain','btnDelete'].forEach(function (id) {
             const b = document.getElementById(id);
             if (b) b.disabled = true;
         });
@@ -699,7 +702,7 @@
     }
 
     function resetActionLoading() {
-        ['btnDeploy','btnDelete'].forEach(function (id) {
+        ['btnDeploy','btnDeployChain','btnDelete'].forEach(function (id) {
             const b = document.getElementById(id);
             if (b) b.disabled = false;
         });
@@ -729,6 +732,33 @@
         } catch (err) {
             if (edge.length && prev) edge.data('status', prev);
             showToast((i18n.networkError || 'Error') + ': ' + err.message, 'error');
+        } finally { resetActionLoading(); }
+    };
+
+    window._cascadeDeployChain = async function (linkId) {
+        if (!confirm(i18n.confirmDeployChain || 'Deploy entire chain? This will sync all connected nodes in the correct order.')) return;
+        setActionLoading(i18n.syncingChain || 'Syncing chain...');
+
+        cy.edges().forEach(function (e) { e.data('status', 'syncing'); });
+
+        try {
+            const res  = await fetch('/api/cascade/chain/deploy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ linkId: linkId }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast((i18n.chainDeploySuccess || 'Chain synced') + ': ' + data.deployed + ' ' + (i18n.nodes || 'nodes'));
+                loadTopology();
+                closeInfoModal();
+            } else {
+                showToast((i18n.chainDeployFailed || 'Chain sync failed') + ': ' + (data.errors || []).join(', '), 'error');
+                loadTopology();
+            }
+        } catch (err) {
+            showToast((i18n.networkError || 'Error') + ': ' + err.message, 'error');
+            loadTopology();
         } finally { resetActionLoading(); }
     };
 
