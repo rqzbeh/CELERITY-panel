@@ -417,6 +417,12 @@
                             <label><%= t('settings.confirmPassword') %></label>
                             <input type="password" name="confirmPassword" minlength="6" required>
                         </div>
+                        <% if (admin?.twoFactor?.enabled) { %>
+                        <div class="form-group">
+                            <label><%= t('settings.totpCurrentCodeLabel') || 'Текущий TOTP-код' %></label>
+                            <input type="text" name="currentTotpCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" autocomplete="one-time-code" required>
+                        </div>
+                        <% } %>
                         <button type="submit" class="btn btn-primary"><i class="ti ti-key"></i> <%= t('settings.changePasswordBtn') %></button>
                     </form>
                 </div>

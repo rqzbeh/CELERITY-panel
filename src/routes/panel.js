@@ -1777,36 +1777,56 @@ router.post('/settings', requireAuth, async (req, res) => {
 // POST /panel/settings/password - Смена пароля
 router.post('/settings/password', requireAuth, async (req, res) => {
     try {
-        const { currentPassword, newPassword, confirmPassword } = req.body;
-        
+        const currentPassword = String(req.body.currentPassword || '');
+        const newPassword = String(req.body.newPassword || '');
+        const confirmPassword = String(req.body.confirmPassword || '');
+        const currentTotpCode = String(req.body.currentTotpCode || '').trim();
+
         // Валидация
         if (!currentPassword || !newPassword || !confirmPassword) {
-            return res.redirect('/panel/settings?error=' + encodeURIComponent('Заполните все поля'));
+            return redirectSettingsSecurity(res, { error: 'Заполните все поля' });
         }
-        
+
         if (newPassword.length < 6) {
-            return res.redirect('/panel/settings?error=' + encodeURIComponent('Новый пароль должен быть минимум 6 символов'));
+            return redirectSettingsSecurity(res, { error: 'Новый пароль должен быть минимум 6 символов' });
         }
-        
+
         if (newPassword !== confirmPassword) {
-            return res.redirect('/panel/settings?error=' + encodeURIComponent('Пароли не совпадают'));
+            return redirectSettingsSecurity(res, { error: 'Пароли не совпадают' });
         }
-        
+
         // Проверяем текущий пароль
         const admin = await Admin.verifyPassword(req.session.adminUsername, currentPassword);
         if (!admin) {
-            return res.redirect('/panel/settings?error=' + encodeURIComponent('Неверный текущий пароль'));
+            return redirectSettingsSecurity(res, { error: 'Неверный текущий пароль' });
         }
-        
+
+        if (admin.twoFactor?.enabled) {
+            if (!admin.twoFactor.secretEncrypted) {
+                logger.warn(`[Panel] Missing TOTP secret for enabled 2FA on password change: ${req.session.adminUsername} (IP: ${req.ip})`);
+                return redirectSettingsSecurity(res, { error: 'Ошибка настройки TOTP. Обратитесь к администратору' });
+            }
+
+            if (!currentTotpCode) {
+                return redirectSettingsSecurity(res, { error: 'Введите текущий TOTP-код' });
+            }
+
+            const currentSecret = totpService.decryptSecret(admin.twoFactor.secretEncrypted);
+            const isCurrentCodeValid = await totpService.verifyToken({ secret: currentSecret, token: currentTotpCode });
+            if (!isCurrentCodeValid) {
+                return redirectSettingsSecurity(res, { error: 'Неверный текущий TOTP-код' });
+            }
+        }
+
         // Меняем пароль
         await Admin.changePassword(req.session.adminUsername, newPassword);
-        
+
         logger.info(`[Panel] Password changed for: ${req.session.adminUsername}`);
-        
-        res.redirect('/panel/settings?message=' + encodeURIComponent('Пароль успешно изменён'));
+
+        return redirectSettingsSecurity(res, { message: 'Пароль успешно изменён' });
     } catch (error) {
         logger.error('[Panel] Password change error:', error.message);
-        res.redirect('/panel/settings?error=' + encodeURIComponent('Ошибка: ' + error.message));
+        return redirectSettingsSecurity(res, { error: 'Ошибка: ' + error.message });
     }
 });
 
