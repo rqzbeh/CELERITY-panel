@@ -140,7 +140,23 @@ app.get('/health', async (req, res) => {
 app.use('/api/auth', authRoutes);
 
 const Admin = require('./src/models/adminModel');
+const totpService = require('./src/services/totpService');
 const rateLimit = require('express-rate-limit');
+
+const API_LOGIN_2FA_PENDING_TTL_MS = 10 * 60 * 1000;
+
+function clearApiLogin2faPending(req) {
+    if (req.session) {
+        delete req.session.apiLogin2faPending;
+    }
+}
+
+function isApiLogin2faPendingValid(req) {
+    const pending = req.session?.apiLogin2faPending;
+    if (!pending) return false;
+    if (!pending.createdAt) return false;
+    return (Date.now() - pending.createdAt) < API_LOGIN_2FA_PENDING_TTL_MS;
+}
 
 const apiLoginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -148,33 +164,92 @@ const apiLoginLimiter = rateLimit({
     message: { error: 'Too many attempts. Try again in 15 minutes.' },
 });
 
+const apiTotpVerifyLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 8,
+    message: { error: 'Too many verification attempts. Try again later.' },
+});
+
 app.post('/api/login', apiLoginLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
-        
+
         if (!username || !password) {
             return res.status(400).json({ error: 'Username and password required' });
         }
-        
+
         const admin = await Admin.verifyPassword(username, password);
-        
         if (!admin) {
             logger.warn(`[API] Failed login: ${username} (IP: ${req.ip})`);
             return res.status(401).json({ error: 'Invalid username or password' });
         }
-        
+
+        if (admin.twoFactor?.enabled) {
+            req.session.apiLogin2faPending = {
+                username: admin.username,
+                secretEncrypted: admin.twoFactor.secretEncrypted,
+                createdAt: Date.now(),
+            };
+            delete req.session.authenticated;
+            delete req.session.adminUsername;
+
+            logger.info(`[API] 2FA required for ${admin.username} (IP: ${req.ip})`);
+            return res.status(202).json({
+                success: false,
+                requiresTwoFactor: true,
+                message: 'Two-factor verification required',
+            });
+        }
+
+        clearApiLogin2faPending(req);
         req.session.authenticated = true;
         req.session.adminUsername = admin.username;
-        
+        await Admin.recordSuccessfulLogin(admin.username);
+
         logger.info(`[API] Login: ${admin.username} (IP: ${req.ip})`);
-        
-        res.json({ 
-            success: true, 
+        return res.json({
+            success: true,
             username: admin.username,
-            message: 'Authentication successful. Use cookies for subsequent requests.'
+            message: 'Authentication successful. Use cookies for subsequent requests.',
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/login/totp', apiTotpVerifyLimiter, async (req, res) => {
+    try {
+        if (!isApiLogin2faPendingValid(req)) {
+            clearApiLogin2faPending(req);
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        const token = String(req.body?.token || '').trim();
+        if (!token) {
+            return res.status(400).json({ error: 'Verification code required' });
+        }
+
+        const pending = req.session.apiLogin2faPending;
+        const secret = totpService.decryptSecret(pending.secretEncrypted);
+        const isValid = await totpService.verifyToken({ secret, token });
+        if (!isValid) {
+            logger.warn(`[API] Failed login 2FA confirmation: ${pending.username} (IP: ${req.ip})`);
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        clearApiLogin2faPending(req);
+        req.session.authenticated = true;
+        req.session.adminUsername = pending.username;
+        await Admin.recordSuccessfulLogin(pending.username);
+
+        logger.info(`[API] Login with 2FA: ${pending.username} (IP: ${req.ip})`);
+        return res.json({
+            success: true,
+            username: pending.username,
+            message: 'Authentication successful. Use cookies for subsequent requests.',
+        });
+    } catch (error) {
+        return res.status(500).json({ error: error.message });
     }
 });
 

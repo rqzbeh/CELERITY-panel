@@ -6,8 +6,8 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
-
 // Multer для загрузки backup файлов
 const backupUpload = multer({ 
     dest: '/tmp/backup-uploads/',
@@ -29,6 +29,7 @@ const ApiKey = require('../models/apiKeyModel');
 const webhookService = require('../services/webhookService');
 const syncService = require('../services/syncService');
 const cryptoService = require('../services/cryptoService');
+const totpService = require('../services/totpService');
 const cache = require('../services/cacheService');
 const nodeSetup = require('../services/nodeSetup');
 const NodeSSH = require('../services/nodeSSH');
@@ -293,83 +294,305 @@ const render = (res, template, data = {}) => {
 
 // ==================== AUTH ====================
 
+const SETUP_2FA_PENDING_TTL_MS = 10 * 60 * 1000;
+const LOGIN_2FA_PENDING_TTL_MS = 10 * 60 * 1000;
+
+function clearSetup2faPending(req) {
+    if (req.session) {
+        delete req.session.setup2faPending;
+    }
+}
+
+function clearLogin2faPending(req) {
+    if (req.session) {
+        delete req.session.login2faPending;
+    }
+}
+
+function isSetup2faPendingValid(req) {
+    const pending = req.session?.setup2faPending;
+    if (!pending) return false;
+    if (!pending.createdAt) return false;
+    return (Date.now() - pending.createdAt) < SETUP_2FA_PENDING_TTL_MS;
+}
+
+function isLogin2faPendingValid(req) {
+    const pending = req.session?.login2faPending;
+    if (!pending) return false;
+    if (!pending.createdAt) return false;
+    return (Date.now() - pending.createdAt) < LOGIN_2FA_PENDING_TTL_MS;
+}
+
+async function renderSetupTotpPage(res, pending, error = null) {
+    const secret = totpService.decryptSecret(pending.secretEncrypted);
+    const otpauthUrl = totpService.buildOtpAuthUrl({
+        secret,
+        username: pending.username,
+    });
+    const qrDataUrl = await totpService.generateQrDataUrl(otpauthUrl);
+
+    return res.render('totp-verify', {
+        mode: 'setup',
+        error,
+        username: pending.username,
+        secret,
+        qrDataUrl,
+    });
+}
+
+function renderLoginTotpPage(res, error = null) {
+    return res.render('totp-verify', {
+        mode: 'login',
+        error,
+    });
+}
+
+const totpVerifyLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 8,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: async (req, res) => {
+        logger.warn(`[Panel] TOTP verify rate limit exceeded (IP: ${req.ip})`);
+        const message = 'Слишком много попыток подтверждения. Попробуйте позже.';
+
+        if (req.path.includes('/setup') && isSetup2faPendingValid(req)) {
+            return renderSetupTotpPage(res, req.session.setup2faPending, message);
+        }
+
+        if (isLogin2faPendingValid(req)) {
+            return renderLoginTotpPage(res, message);
+        }
+
+        return res.redirect('/panel/login');
+    },
+});
+
 // GET /panel/login - Логин или первичная регистрация
 router.get('/login', async (req, res) => {
     if (req.session && req.session.authenticated) {
         return res.redirect('/panel');
     }
-    
-    // Проверяем есть ли админ в БД
-    const hasAdmin = await Admin.hasAdmin();
-    
-    if (!hasAdmin) {
-        // Первый запуск - показываем форму регистрации
-        return res.render('setup', { error: null });
+
+    if (isLogin2faPendingValid(req)) {
+        return res.redirect('/panel/login/totp');
     }
-    
+
+    clearLogin2faPending(req);
+
+    const hasAdmin = await Admin.hasAdmin();
+    if (!hasAdmin) {
+        if (isSetup2faPendingValid(req)) {
+            return res.redirect('/panel/setup/totp');
+        }
+
+        clearSetup2faPending(req);
+        return res.render('setup', { error: null, enableTotp: false });
+    }
+
+    clearSetup2faPending(req);
     res.render('login', { error: null });
 });
 
 // POST /panel/setup - Первичная регистрация админа
 router.post('/setup', async (req, res) => {
     try {
-        // Проверяем что админа ещё нет
         const hasAdmin = await Admin.hasAdmin();
         if (hasAdmin) {
+            clearSetup2faPending(req);
             return res.redirect('/panel/login');
         }
-        
-        const { username, password, passwordConfirm } = req.body;
-        
-        // Валидация
+
+        const { username, password, passwordConfirm, enableTotp } = req.body;
+
         if (!username || username.length < 3) {
-            return res.render('setup', { error: 'Логин должен быть минимум 3 символа' });
+            return res.render('setup', { error: 'Логин должен быть минимум 3 символа', enableTotp: enableTotp === 'on' });
         }
         if (!password || password.length < 6) {
-            return res.render('setup', { error: 'Пароль должен быть минимум 6 символов' });
+            return res.render('setup', { error: 'Пароль должен быть минимум 6 символов', enableTotp: enableTotp === 'on' });
         }
         if (password !== passwordConfirm) {
-            return res.render('setup', { error: 'Пароли не совпадают' });
+            return res.render('setup', { error: 'Пароли не совпадают', enableTotp: enableTotp === 'on' });
         }
-        
-        // Создаём админа
-        await Admin.createAdmin(username, password);
-        
-        logger.info(`[Panel] Administrator created: ${username}`);
-        
-        // Авторизуем сразу
-        req.session.authenticated = true;
-        req.session.adminUsername = username.toLowerCase();
-        
-        res.redirect('/panel');
+
+        const normalizedUsername = username.toLowerCase().trim();
+        const setupWithTotp = enableTotp === 'on';
+
+        if (!setupWithTotp) {
+            await Admin.createAdmin(normalizedUsername, password);
+            await Admin.recordSuccessfulLogin(normalizedUsername);
+            clearSetup2faPending(req);
+            clearLogin2faPending(req);
+            req.session.authenticated = true;
+            req.session.adminUsername = normalizedUsername;
+
+            logger.info(`[Panel] Administrator created: ${normalizedUsername}`);
+            return res.redirect('/panel');
+        }
+
+        const passwordHash = await bcrypt.hash(password, 12);
+        const secret = totpService.generateSecret();
+        const secretEncrypted = totpService.encryptSecret(secret);
+
+        req.session.setup2faPending = {
+            username: normalizedUsername,
+            passwordHash,
+            secretEncrypted,
+            createdAt: Date.now(),
+        };
+
+        logger.info(`[Panel] 2FA setup required for new admin: ${normalizedUsername} (IP: ${req.ip})`);
+        return renderSetupTotpPage(res, req.session.setup2faPending);
     } catch (error) {
         logger.error('[Panel] Admin creation error:', error.message);
-        res.render('setup', { error: 'Ошибка: ' + error.message });
+        res.render('setup', { error: 'Ошибка: ' + error.message, enableTotp: req.body.enableTotp === 'on' });
+    }
+});
+
+router.get('/setup/totp', async (req, res) => {
+    const hasAdmin = await Admin.hasAdmin();
+    if (hasAdmin) {
+        clearSetup2faPending(req);
+        return res.redirect('/panel/login');
+    }
+
+    if (!isSetup2faPendingValid(req)) {
+        clearSetup2faPending(req);
+        return res.redirect('/panel/login');
+    }
+
+    return renderSetupTotpPage(res, req.session.setup2faPending);
+});
+
+router.post('/setup/totp', totpVerifyLimiter, async (req, res) => {
+    try {
+        const hasAdmin = await Admin.hasAdmin();
+        if (hasAdmin) {
+            clearSetup2faPending(req);
+            return res.redirect('/panel/login');
+        }
+
+        if (!isSetup2faPendingValid(req)) {
+            clearSetup2faPending(req);
+            return res.redirect('/panel/login');
+        }
+
+        const pending = req.session.setup2faPending;
+        const token = String(req.body.token || '').trim();
+        if (!token) {
+            return renderSetupTotpPage(res, pending, 'Введите код подтверждения');
+        }
+
+        const secret = totpService.decryptSecret(pending.secretEncrypted);
+        const isValid = await totpService.verifyToken({ secret, token });
+        if (!isValid) {
+            logger.warn(`[Panel] Failed setup 2FA confirmation for ${pending.username} (IP: ${req.ip})`);
+            return renderSetupTotpPage(res, pending, 'Неверный код подтверждения');
+        }
+
+        await Admin.createAdminWithHash(pending.username, pending.passwordHash, {
+            twoFactor: {
+                enabled: true,
+                secretEncrypted: pending.secretEncrypted,
+                enabledAt: new Date(),
+            },
+        });
+        await Admin.recordSuccessfulLogin(pending.username);
+        clearLogin2faPending(req);
+        req.session.authenticated = true;
+        req.session.adminUsername = pending.username;
+        clearSetup2faPending(req);
+
+        logger.info(`[Panel] Administrator created with 2FA: ${req.session.adminUsername}`);
+        return res.redirect('/panel');
+    } catch (error) {
+        logger.error('[Panel] Setup 2FA confirmation error:', error.message);
+        if (isSetup2faPendingValid(req)) {
+            return renderSetupTotpPage(res, req.session.setup2faPending, 'Ошибка: ' + error.message);
+        }
+        return res.redirect('/panel/login');
     }
 });
 
 // POST /panel/login (с rate limiting)
 router.post('/login', loginLimiter, async (req, res) => {
     const { username, password } = req.body;
-    
-    // Проверяем есть ли админ в БД
+
     const hasAdmin = await Admin.hasAdmin();
     if (!hasAdmin) {
         return res.redirect('/panel/login');
     }
-    
-    // Проверяем логин/пароль
+
     const admin = await Admin.verifyPassword(username, password);
-    
-    if (admin) {
-        req.session.authenticated = true;
-        req.session.adminUsername = admin.username;
-        logger.info(`[Panel] Successful login: ${admin.username} from IP: ${req.ip}`);
+
+    if (!admin) {
+        logger.warn(`[Panel] Failed login attempt: ${username} from IP: ${req.ip}`);
+        return res.render('login', { error: 'Неверный логин или пароль' });
+    }
+
+    clearSetup2faPending(req);
+
+    if (admin.twoFactor?.enabled) {
+        req.session.login2faPending = {
+            username: admin.username,
+            secretEncrypted: admin.twoFactor.secretEncrypted,
+            createdAt: Date.now(),
+        };
+        delete req.session.authenticated;
+        delete req.session.adminUsername;
+
+        logger.info(`[Panel] 2FA required for ${admin.username} (IP: ${req.ip})`);
+        return res.redirect('/panel/login/totp');
+    }
+
+    clearLogin2faPending(req);
+    req.session.authenticated = true;
+    req.session.adminUsername = admin.username;
+    await Admin.recordSuccessfulLogin(admin.username);
+
+    logger.info(`[Panel] Successful login: ${admin.username} from IP: ${req.ip}`);
+    return res.redirect('/panel');
+});
+
+router.get('/login/totp', async (req, res) => {
+    if (req.session && req.session.authenticated) {
         return res.redirect('/panel');
     }
-    
-    logger.warn(`[Panel] Failed login attempt: ${username} from IP: ${req.ip}`);
-    res.render('login', { error: 'Неверный логин или пароль' });
+
+    if (!isLogin2faPendingValid(req)) {
+        clearLogin2faPending(req);
+        return res.redirect('/panel/login');
+    }
+
+    return renderLoginTotpPage(res);
+});
+
+router.post('/login/totp', totpVerifyLimiter, async (req, res) => {
+    if (!isLogin2faPendingValid(req)) {
+        clearLogin2faPending(req);
+        return res.redirect('/panel/login');
+    }
+
+    const pending = req.session.login2faPending;
+    const token = String(req.body.token || '').trim();
+    if (!token) {
+        return renderLoginTotpPage(res, 'Введите код подтверждения');
+    }
+
+    const secret = totpService.decryptSecret(pending.secretEncrypted);
+    const isValid = await totpService.verifyToken({ secret, token });
+    if (!isValid) {
+        logger.warn(`[Panel] Failed login 2FA confirmation for ${pending.username} (IP: ${req.ip})`);
+        return renderLoginTotpPage(res, 'Неверный код подтверждения');
+    }
+
+    clearLogin2faPending(req);
+    req.session.authenticated = true;
+    req.session.adminUsername = pending.username;
+    await Admin.recordSuccessfulLogin(pending.username);
+
+    logger.info(`[Panel] Successful login with 2FA: ${pending.username} (IP: ${req.ip})`);
+    return res.redirect('/panel');
 });
 
 // GET /panel/logout

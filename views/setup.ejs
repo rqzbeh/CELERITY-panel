@@ -45,6 +45,16 @@
                            placeholder="<%= typeof t !== 'undefined' ? t('setup.repeatPassword') : 'Repeat password' %>" 
                            minlength="6" required>
                 </div>
+                <label class="checkbox-label" style="margin-bottom: 12px;">
+                    <input type="checkbox" name="enableTotp" <%= enableTotp ? 'checked' : '' %>>
+                    <span><%= typeof t !== 'undefined' ? t('setup.enableTotpLabel') : 'Enable two-factor authentication (TOTP)' %></span>
+                </label>
+                <small class="hint" style="display:block; margin-bottom: 14px;">
+                    <%= typeof t !== 'undefined' ? t('setup.enableTotpHint') : 'After account creation you will need to confirm setup in an authenticator app.' %>
+                </small>
+                <div class="alert alert-info" style="margin-bottom: 1rem;">
+                    <i class="ti ti-alert-triangle"></i> <%= typeof t !== 'undefined' ? t('setup.noRecoveryWarning') : 'Version 1 has no self-service recovery. Save the secret in a safe place.' %>
+                </div>
                 <button type="submit" class="btn btn-primary btn-block"><%= typeof t !== 'undefined' ? t('setup.createAccount') : 'Create Account' %></button>
             </form>
             

@@ -67,7 +67,19 @@
     "enterLogin": "Enter login",
     "enterPassword": "Enter password",
     "invalidCredentials": "Invalid username or password",
-    "sessionExpired": "Session expired, please login again"
+    "sessionExpired": "Session expired, please login again",
+    "totpTitle": "Two-factor verification",
+    "totpSetupTitle": "Set up two-factor authentication",
+    "totpSetupDescription": "Scan the QR code in your authenticator app and enter the 6-digit code.",
+    "totpLoginDescription": "Enter the code from your authenticator app to finish login.",
+    "totpCode": "Verification code",
+    "totpCodePlaceholder": "123456",
+    "totpVerifyButton": "Verify",
+    "totpQrHint": "If the QR code does not scan, use the manual secret.",
+    "totpManualSecret": "Manual secret",
+    "totpRequired": "Enter verification code",
+    "invalidTotp": "Invalid verification code",
+    "totpPendingExpired": "Verification session expired, please sign in again"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -463,6 +475,7 @@
     "security": "Security",
     "administrator": "Administrator",
     "lastLogin": "Last Login",
+    "twoFactorStatus": "Two-factor authentication",
     "never": "Never",
     "ipWhitelist": "IP Whitelist",
     "ipWhitelistDisabled": "Disabled (access for all)",
@@ -563,6 +576,9 @@
     "minChars6": "Minimum 6 characters",
     "confirmPassword": "Confirm Password",
     "repeatPassword": "Repeat password",
+    "enableTotpLabel": "Enable two-factor authentication (TOTP)",
+    "enableTotpHint": "After account creation you will need to confirm setup in an authenticator app.",
+    "noRecoveryWarning": "Version 1 has no self-service recovery. Save the secret in a safe place.",
     "createAccount": "Create Account",
     "rememberWarning": "Remember credentials — recovery is impossible!",
     "passwordsMismatch": "Passwords don't match!"

@@ -366,6 +366,10 @@
                             <span><%= admin?.lastLogin ? new Date(admin.lastLogin).toLocaleString(lang === 'en' ? 'en-US' : 'ru-RU') : t('settings.never') %></span>
                         </div>
                         <div class="setting-item">
+                            <label><%= t('settings.twoFactorStatus') || 'Two-factor authentication' %></label>
+                            <span><%= admin?.twoFactor?.enabled ? t('common.enabled') : t('common.disabled') %></span>
+                        </div>
+                        <div class="setting-item">
                             <label><%= t('settings.ipWhitelist') %></label>
                             <span><%= config.PANEL_IP_WHITELIST || t('settings.ipWhitelistDisabled') %></span>
                         </div>

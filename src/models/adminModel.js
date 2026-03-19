@@ -17,6 +17,20 @@ const adminSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+    twoFactor: {
+        enabled: {
+            type: Boolean,
+            default: false,
+        },
+        secretEncrypted: {
+            type: String,
+            default: null,
+        },
+        enabledAt: {
+            type: Date,
+            default: null,
+        },
+    },
     createdAt: {
         type: Date,
         default: Date.now,
@@ -27,11 +41,19 @@ const adminSchema = new mongoose.Schema({
     },
 });
 
-adminSchema.statics.createAdmin = async function(username, password) {
+
+adminSchema.statics.createAdmin = async function(username, password, options = {}) {
     const hash = await bcrypt.hash(password, 12);
+    const twoFactor = options.twoFactor || {};
+
     return this.create({
         username: username.toLowerCase().trim(),
         passwordHash: hash,
+        twoFactor: {
+            enabled: Boolean(twoFactor.enabled),
+            secretEncrypted: twoFactor.secretEncrypted || null,
+            enabledAt: twoFactor.enabledAt || null,
+        },
     });
 };
 
@@ -41,9 +63,6 @@ adminSchema.statics.verifyPassword = async function(username, password) {
     
     const isValid = await bcrypt.compare(password, admin.passwordHash);
     if (!isValid) return null;
-    
-    admin.lastLogin = new Date();
-    await admin.save();
     
     return admin;
 };
@@ -62,19 +81,26 @@ adminSchema.statics.changePassword = async function(username, newPassword) {
     );
 };
 
+adminSchema.statics.recordSuccessfulLogin = async function(username) {
+    return this.findOneAndUpdate(
+        { username: username.toLowerCase().trim() },
+        { lastLogin: new Date() },
+        { new: true }
+    );
+};
+
+adminSchema.statics.createAdminWithHash = async function(username, passwordHash, options = {}) {
+    const twoFactor = options.twoFactor || {};
+
+    return this.create({
+        username: username.toLowerCase().trim(),
+        passwordHash,
+        twoFactor: {
+            enabled: Boolean(twoFactor.enabled),
+            secretEncrypted: twoFactor.secretEncrypted || null,
+            enabledAt: twoFactor.enabledAt || null,
+        },
+    });
+};
+
 module.exports = mongoose.model('Admin', adminSchema);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
