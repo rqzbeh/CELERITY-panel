@@ -1391,7 +1391,7 @@ router.post('/users', requireAuth, async (req, res) => {
         // Max devices (0 = use group limit, -1 = unlimited)
         const userMaxDevices = parseInt(maxDevices) || 0;
         
-        await HyUser.create({
+        const newUser = await HyUser.create({
             userId,
             username: username || '',
             password,
@@ -1400,8 +1400,15 @@ router.post('/users', requireAuth, async (req, res) => {
             trafficLimit,
             maxDevices: userMaxDevices,
             expireAt,
-            nodes: [], // Ноды автоматически по группам
+            nodes: [],
         });
+
+        // Sync with Xray nodes if user is enabled
+        if (newUser.enabled) {
+            syncService.addUserToAllXrayNodes(newUser.toObject()).catch(err => {
+                logger.error(`[Panel] Xray addUser error for ${userId}: ${err.message}`);
+            });
+        }
         
         res.redirect(`/panel/users/${userId}`);
     } catch (error) {
