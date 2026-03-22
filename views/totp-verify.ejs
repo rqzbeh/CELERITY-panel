@@ -25,12 +25,12 @@
         const customButtonText = typeof buttonText !== 'undefined' ? buttonText : null;
         const customTitle = typeof title !== 'undefined' ? title : null;
         const customDescription = typeof description !== 'undefined' ? description : null;
-        const resolvedFormAction = customFormAction || (
-            isSetupMode ? '/panel/setup/totp' : isSettingsMode ? '/panel/settings/totp' : '/panel/login/totp'
-        );
+        const resolvedFormAction = customFormAction || '/panel/totp';
         const resolvedButtonText = customButtonText || (typeof t !== 'undefined' ? t('auth.totpVerifyButton') : 'Verify');
         const resolvedTitle = customTitle || defaultTitle;
         const resolvedDescription = customDescription || defaultDescription;
+        const shouldShowEnrollment = typeof showEnrollment !== 'undefined' ? Boolean(showEnrollment) : isEnrollmentMode;
+        const resolvedCancelHref = typeof cancelHref !== 'undefined' ? cancelHref : null;
     %>
     <div class="login-container">
         <div class="login-box">
@@ -46,7 +46,7 @@
             <div class="alert alert-error"><%= error %></div>
             <% } %>
 
-            <% if (isEnrollmentMode) { %>
+            <% if (shouldShowEnrollment) { %>
             <div class="alert alert-info" style="margin-bottom: 1rem;">
                 <%= resolvedDescription %>
             </div>
@@ -81,6 +81,9 @@
                     >
                 </div>
                 <button type="submit" class="btn btn-primary btn-block"><%= resolvedButtonText %></button>
+                <% if (resolvedCancelHref) { %>
+                <a href="<%= resolvedCancelHref %>" class="btn btn-secondary btn-block" style="margin-top: 0.75rem;"><%= typeof t !== 'undefined' ? t('common.cancel') : 'Cancel' %></a>
+                <% } %>
             </form>
         </div>
     </div>

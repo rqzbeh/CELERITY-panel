@@ -74,9 +74,13 @@ adminSchema.statics.hasAdmin = async function() {
 
 adminSchema.statics.changePassword = async function(username, newPassword) {
     const hash = await bcrypt.hash(newPassword, 12);
+    return this.changePasswordWithHash(username, hash);
+};
+
+adminSchema.statics.changePasswordWithHash = async function(username, passwordHash) {
     return this.findOneAndUpdate(
         { username: username.toLowerCase().trim() },
-        { passwordHash: hash },
+        { passwordHash },
         { new: true }
     );
 };
