@@ -74,6 +74,7 @@ MONGO_PASSWORD=yourmongopassword   # openssl rand -hex 16
 
 - 🖥 **Web Panel** — Full UI for managing nodes and users
 - 🔐 **Dual Protocol** — Hysteria 2 and Xray VLESS on one panel
+- 🛡️ **Panel 2FA (TOTP)** — Unified TOTP verification flow for admin login and sensitive security actions
 - 🚀 **Auto Node Setup** — Install Hysteria/Xray, certs, port hopping in one click
 - 👥 **Server Groups** — Flexible user-to-node mapping
 - ⚖️ **Load Balancing** — Distribute users by server load
