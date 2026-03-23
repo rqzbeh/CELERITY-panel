@@ -28,6 +28,7 @@ const Admin = require('../models/adminModel');
 const ApiKey = require('../models/apiKeyModel');
 const webhookService = require('../services/webhookService');
 const syncService = require('../services/syncService');
+const configGenerator = require('../services/configGenerator');
 const cryptoService = require('../services/cryptoService');
 const totpService = require('../services/totpService');
 const cache = require('../services/cacheService');
@@ -158,6 +159,365 @@ function parseXrayFormFields(body) {
     if (body['xray.apiPort']) xray.apiPort = parseInt(body['xray.apiPort']) || 61000;
 
     return xray;
+}
+
+function parseBool(body, key, defaultValue = false) {
+    if (body[key] === undefined) return defaultValue;
+    const v = Array.isArray(body[key]) ? body[key][body[key].length - 1] : body[key];
+    return v === 'on' || v === 'true' || v === true || v === '1';
+}
+
+function parseHeaderMap(raw, fallback = {}) {
+    const text = (raw || '').trim();
+    if (!text) return fallback;
+    const result = {};
+    text.split('\n').forEach(line => {
+        const row = line.trim();
+        if (!row) return;
+        const idx = row.indexOf(':');
+        if (idx <= 0) return;
+        const key = row.slice(0, idx).trim().toLowerCase();
+        const value = row.slice(idx + 1).trim();
+        if (!key) return;
+        result[key] = value;
+    });
+    return Object.keys(result).length > 0 ? result : fallback;
+}
+
+function parseJSONObjectWithStatus(raw, fallback = {}) {
+    const text = (raw || '').trim();
+    if (!text) {
+        return { value: fallback, valid: true };
+    }
+    try {
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return { value: fallback, valid: false };
+        }
+        return { value: parsed, valid: true };
+    } catch (_) {
+        return { value: fallback, valid: false };
+    }
+}
+
+function parseIntegerOrDefault(raw, defaultValue) {
+    const value = parseInt(raw, 10);
+    return Number.isFinite(value) ? value : defaultValue;
+}
+
+function normalizeTextareaNewlines(value) {
+    return String(value || '').replace(/\r\n?/g, '\n');
+}
+
+const DEFAULT_INLINE_ACL_RULES = [
+    'reject(geoip:cn)',
+    'reject(geoip:private)',
+];
+
+function parseAclRulesInput(raw) {
+    return String(raw || '')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+}
+
+function getHysteriaAclInlineState(node) {
+    if (!node || node.type === 'xray') {
+        return { editable: true, reason: '' };
+    }
+    const aclEnabled = node.acl?.enabled !== false;
+    const aclType = node.acl?.type || 'inline';
+    if (!aclEnabled) return { editable: false, reason: 'disabled' };
+    if (aclType === 'file') return { editable: false, reason: 'file' };
+    return { editable: true, reason: '' };
+}
+
+function parseHysteriaFormFields(body) {
+    const hasDomain = !!String(body.domain || '').trim();
+    const acmeAdvancedEnabled = parseBool(body, 'acme.advanced.enabled', false) && hasDomain;
+    const bandwidthEnabled = parseBool(body, 'bandwidth.enabled', false);
+    const udpOptionsEnabled = parseBool(body, 'udp.options.enabled', false);
+    const sniffEnabled = parseBool(body, 'sniff.enabled', false);
+    const quicEnabled = parseBool(body, 'quic.enabled', false);
+    const resolverEnabled = parseBool(body, 'resolver.enabled', false);
+    const aclEnabled = parseBool(body, 'acl.enabled', true);
+    const aclType = body['acl.type'] === 'file' ? 'file' : 'inline';
+    const aclInlineRules = parseAclRulesInput(body['acl.inlineRules'] || body.aclRules);
+    const aclRules = aclEnabled && aclType === 'inline'
+        ? (aclInlineRules.length > 0 ? aclInlineRules : DEFAULT_INLINE_ACL_RULES.slice())
+        : aclInlineRules;
+
+    const acmeDnsConfigParsed = acmeAdvancedEnabled
+        ? parseJSONObjectWithStatus(body['acme.dns.config'], {})
+        : { value: {}, valid: true };
+    const masqueradeType = body['masquerade.type'] === 'string' ? 'string' : 'proxy';
+
+    const masquerade = {
+        type: masqueradeType,
+        proxy: {
+            url: (body['masquerade.proxy.url'] || '').trim() || 'https://www.google.com',
+            rewriteHost: parseBool(body, 'masquerade.proxy.rewriteHost', false),
+            insecure: parseBool(body, 'masquerade.proxy.insecure', false),
+        },
+        string: {
+            content: normalizeTextareaNewlines(body['masquerade.string.content'] || 'Service Unavailable'),
+            headers: parseHeaderMap(body['masquerade.string.headers'], { 'content-type': 'text/plain' }),
+            statusCode: parseInt(body['masquerade.string.statusCode']) || 503,
+        },
+        listenHTTP: (body['masquerade.listenHTTP'] || '').trim(),
+        listenHTTPS: (body['masquerade.listenHTTPS'] || '').trim(),
+        forceHTTPS: parseBool(body, 'masquerade.forceHTTPS', false),
+    };
+
+    return {
+        hopInterval: (body.hopInterval || '').trim(),
+        acme: {
+            email: hasDomain ? (body['acme.email'] || '').trim() : '',
+            ca: hasDomain ? ((body['acme.ca'] || 'letsencrypt').trim() || 'letsencrypt') : '',
+            listenHost: acmeAdvancedEnabled ? ((body['acme.listenHost'] || '').trim()) : '',
+            type: acmeAdvancedEnabled ? (body['acme.type'] || '').trim() : '',
+            httpAltPort: acmeAdvancedEnabled ? parseIntegerOrDefault(body['acme.httpAltPort'], 0) : 0,
+            tlsAltPort: acmeAdvancedEnabled ? parseIntegerOrDefault(body['acme.tlsAltPort'], 0) : 0,
+            disableHTTPChallenge: false,
+            disableTLSALPNChallenge: false,
+            dnsName: acmeAdvancedEnabled ? (body['acme.dns.name'] || '').trim() : '',
+            dnsConfig: acmeAdvancedEnabled ? acmeDnsConfigParsed.value : {},
+        },
+        acmeDnsConfigValid: acmeDnsConfigParsed.valid,
+        bandwidth: {
+            up: bandwidthEnabled ? (body['bandwidth.up'] || '').trim() : '',
+            down: bandwidthEnabled ? (body['bandwidth.down'] || '').trim() : '',
+        },
+        ignoreClientBandwidth: bandwidthEnabled ? parseBool(body, 'ignoreClientBandwidth', false) : false,
+        speedTest: parseBool(body, 'speedTest', false),
+        disableUDP: udpOptionsEnabled ? parseBool(body, 'disableUDP', false) : false,
+        udpIdleTimeout: udpOptionsEnabled ? (body['udpIdleTimeout'] || '').trim() : '',
+        sniff: {
+            enabled: sniffEnabled,
+            enable: parseBool(body, 'sniff.enable', true),
+            timeout: sniffEnabled ? ((body['sniff.timeout'] || '2s').trim() || '2s') : '2s',
+            rewriteDomain: sniffEnabled ? parseBool(body, 'sniff.rewriteDomain', false) : false,
+            tcpPorts: sniffEnabled ? ((body['sniff.tcpPorts'] || '80,443,8000-9000').trim() || '80,443,8000-9000') : '80,443,8000-9000',
+            udpPorts: sniffEnabled ? ((body['sniff.udpPorts'] || '443,80,53').trim() || '443,80,53') : '443,80,53',
+        },
+        quic: {
+            enabled: quicEnabled,
+            initStreamReceiveWindow: quicEnabled ? parseIntegerOrDefault(body['quic.initStreamReceiveWindow'], 8388608) : 8388608,
+            maxStreamReceiveWindow: quicEnabled ? parseIntegerOrDefault(body['quic.maxStreamReceiveWindow'], 8388608) : 8388608,
+            initConnReceiveWindow: quicEnabled ? parseIntegerOrDefault(body['quic.initConnReceiveWindow'], 20971520) : 20971520,
+            maxConnReceiveWindow: quicEnabled ? parseIntegerOrDefault(body['quic.maxConnReceiveWindow'], 20971520) : 20971520,
+            maxIdleTimeout: quicEnabled ? ((body['quic.maxIdleTimeout'] || '60s').trim() || '60s') : '60s',
+            maxIncomingStreams: quicEnabled ? parseIntegerOrDefault(body['quic.maxIncomingStreams'], 256) : 256,
+            disablePathMTUDiscovery: quicEnabled ? parseBool(body, 'quic.disablePathMTUDiscovery', false) : false,
+        },
+        resolver: {
+            enabled: resolverEnabled,
+            type: resolverEnabled ? ((body['resolver.type'] || 'udp').trim() || 'udp') : 'udp',
+            udpAddr: resolverEnabled ? ((body['resolver.udp.addr'] || '8.8.4.4:53').trim() || '8.8.4.4:53') : '8.8.4.4:53',
+            udpTimeout: resolverEnabled ? ((body['resolver.udp.timeout'] || '4s').trim() || '4s') : '4s',
+            tcpAddr: resolverEnabled ? ((body['resolver.tcp.addr'] || '8.8.8.8:53').trim() || '8.8.8.8:53') : '8.8.8.8:53',
+            tcpTimeout: resolverEnabled ? ((body['resolver.tcp.timeout'] || '4s').trim() || '4s') : '4s',
+            tlsAddr: resolverEnabled ? ((body['resolver.tls.addr'] || '1.1.1.1:853').trim() || '1.1.1.1:853') : '1.1.1.1:853',
+            tlsTimeout: resolverEnabled ? ((body['resolver.tls.timeout'] || '10s').trim() || '10s') : '10s',
+            tlsSni: resolverEnabled ? ((body['resolver.tls.sni'] || 'cloudflare-dns.com').trim() || 'cloudflare-dns.com') : 'cloudflare-dns.com',
+            tlsInsecure: resolverEnabled ? parseBool(body, 'resolver.tls.insecure', false) : false,
+            httpsAddr: resolverEnabled ? ((body['resolver.https.addr'] || '1.1.1.1:443').trim() || '1.1.1.1:443') : '1.1.1.1:443',
+            httpsTimeout: resolverEnabled ? ((body['resolver.https.timeout'] || '10s').trim() || '10s') : '10s',
+            httpsSni: resolverEnabled ? ((body['resolver.https.sni'] || 'cloudflare-dns.com').trim() || 'cloudflare-dns.com') : 'cloudflare-dns.com',
+            httpsInsecure: resolverEnabled ? parseBool(body, 'resolver.https.insecure', false) : false,
+        },
+        masquerade,
+        acl: {
+            enabled: aclEnabled,
+            type: aclEnabled ? aclType : 'inline',
+            file: aclEnabled ? (body['acl.file'] || '').trim() : '',
+            geoip: aclEnabled ? (body['acl.geoip'] || '').trim() : '',
+            geosite: aclEnabled ? (body['acl.geosite'] || '').trim() : '',
+            geoUpdateInterval: aclEnabled ? (body['acl.geoUpdateInterval'] || '').trim() : '',
+        },
+        aclRules,
+    };
+}
+
+function parseDurationSeconds(raw) {
+    const v = String(raw || '').trim().toLowerCase();
+    if (!v) return 0;
+    const m = v.match(/^(\d+(\.\d+)?)(ms|s|m|h)?$/);
+    if (!m) return NaN;
+    const n = Number(m[1]);
+    const unit = m[3] || 's';
+    if (unit === 'ms') return n / 1000;
+    if (unit === 's') return n;
+    if (unit === 'm') return n * 60;
+    if (unit === 'h') return n * 3600;
+    return NaN;
+}
+
+function isValidPortList(raw) {
+    const value = String(raw || '').trim().toLowerCase();
+    if (!value) return false;
+    if (value === 'all') return true;
+
+    const parts = value.split(',').map(p => p.trim()).filter(Boolean);
+    if (parts.length === 0) return false;
+
+    for (const part of parts) {
+        if (/^\d+$/.test(part)) {
+            const port = Number(part);
+            if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+            continue;
+        }
+
+        const match = part.match(/^(\d+)-(\d+)$/);
+        if (!match) return false;
+
+        const start = Number(match[1]);
+        const end = Number(match[2]);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) return false;
+        if (start < 1 || start > 65535 || end < 1 || end > 65535 || start > end) return false;
+    }
+
+    return true;
+}
+
+function isValidBandwidth(raw) {
+    const value = String(raw || '').trim().toLowerCase();
+    if (!value) return true;
+    if (value === '0' || value === '0.0') return true;
+    const match = value.match(/^(\d+(\.\d+)?)\s*([a-z]+)$/);
+    if (!match) return false;
+    const unit = match[3];
+    return ['b', 'bps', 'kbps', 'kb', 'k', 'mbps', 'mb', 'm', 'gbps', 'gb', 'g', 'tbps', 'tb', 't'].includes(unit);
+}
+
+function isPositiveInteger(value) {
+    return Number.isInteger(value) && value > 0;
+}
+
+function validateHysteriaFormFields(fields) {
+    if (fields.hopInterval) {
+        const sec = parseDurationSeconds(fields.hopInterval);
+        if (!Number.isFinite(sec) || sec <= 0) {
+            return 'Invalid hopInterval format (example: 30s, 1m)';
+        }
+        if (sec < 5) {
+            return 'Invalid hopInterval: must be at least 5s';
+        }
+    }
+
+    const acmeType = (fields.acme?.type || '').trim();
+    if (acmeType && !['http', 'tls', 'dns'].includes(acmeType)) {
+        return 'Invalid ACME challenge type';
+    }
+    if (acmeType === 'dns' && fields.acmeDnsConfigValid === false) {
+        return 'ACME DNS config must be a valid JSON object';
+    }
+    if (acmeType === 'dns' && !fields.acme?.dnsName) {
+        return 'ACME DNS mode requires provider name (acme.dns.name)';
+    }
+    if (fields.acme?.httpAltPort && (fields.acme.httpAltPort < 1 || fields.acme.httpAltPort > 65535)) {
+        return 'ACME HTTP altPort must be between 1 and 65535';
+    }
+    if (fields.acme?.tlsAltPort && (fields.acme.tlsAltPort < 1 || fields.acme.tlsAltPort > 65535)) {
+        return 'ACME TLS altPort must be between 1 and 65535';
+    }
+
+    if (fields.acl?.enabled && fields.acl?.type === 'file' && !fields.acl?.file) {
+        return 'ACL file mode requires acl.file path';
+    }
+
+    if (fields.bandwidth?.up && !isValidBandwidth(fields.bandwidth.up)) {
+        return 'Invalid bandwidth.up format (example: 100 mbps)';
+    }
+    if (fields.bandwidth?.down && !isValidBandwidth(fields.bandwidth.down)) {
+        return 'Invalid bandwidth.down format (example: 100 mbps)';
+    }
+
+    if (fields.udpIdleTimeout) {
+        const sec = parseDurationSeconds(fields.udpIdleTimeout);
+        if (!Number.isFinite(sec) || sec <= 0) {
+            return 'Invalid udpIdleTimeout format (example: 60s, 1m)';
+        }
+    }
+
+    if (fields.sniff?.enabled) {
+        const sniffTimeout = parseDurationSeconds(fields.sniff?.timeout);
+        if (!Number.isFinite(sniffTimeout) || sniffTimeout <= 0) {
+            return 'Invalid sniff.timeout format (example: 2s, 1m)';
+        }
+        if (!isValidPortList(fields.sniff?.tcpPorts)) {
+            return 'Invalid sniff.tcpPorts format (example: 80,443,8000-9000 or all)';
+        }
+        if (!isValidPortList(fields.sniff?.udpPorts)) {
+            return 'Invalid sniff.udpPorts format (example: 443,80,53 or all)';
+        }
+    }
+
+    const quic = fields.quic || {};
+    if (quic.enabled) {
+        if (!isPositiveInteger(quic.initStreamReceiveWindow)) {
+            return 'quic.initStreamReceiveWindow must be a positive integer';
+        }
+        if (!isPositiveInteger(quic.maxStreamReceiveWindow)) {
+            return 'quic.maxStreamReceiveWindow must be a positive integer';
+        }
+        if (!isPositiveInteger(quic.initConnReceiveWindow)) {
+            return 'quic.initConnReceiveWindow must be a positive integer';
+        }
+        if (!isPositiveInteger(quic.maxConnReceiveWindow)) {
+            return 'quic.maxConnReceiveWindow must be a positive integer';
+        }
+        if (!isPositiveInteger(quic.maxIncomingStreams)) {
+            return 'quic.maxIncomingStreams must be a positive integer';
+        }
+        const quicIdle = parseDurationSeconds(quic.maxIdleTimeout);
+        if (!Number.isFinite(quicIdle) || quicIdle <= 0) {
+            return 'Invalid quic.maxIdleTimeout format (example: 60s, 1m)';
+        }
+        if (quic.maxStreamReceiveWindow < quic.initStreamReceiveWindow) {
+            return 'quic.maxStreamReceiveWindow must be greater than or equal to quic.initStreamReceiveWindow';
+        }
+        if (quic.maxConnReceiveWindow < quic.initConnReceiveWindow) {
+            return 'quic.maxConnReceiveWindow must be greater than or equal to quic.initConnReceiveWindow';
+        }
+    }
+
+    if (fields.resolver?.enabled) {
+        const resolverType = fields.resolver.type || 'udp';
+        if (!['udp', 'tcp', 'tls', 'https'].includes(resolverType)) {
+            return 'Invalid resolver.type';
+        }
+
+        let timeoutRaw = '';
+        if (resolverType === 'udp') timeoutRaw = fields.resolver.udpTimeout;
+        if (resolverType === 'tcp') timeoutRaw = fields.resolver.tcpTimeout;
+        if (resolverType === 'tls') timeoutRaw = fields.resolver.tlsTimeout;
+        if (resolverType === 'https') timeoutRaw = fields.resolver.httpsTimeout;
+
+        const timeoutSec = parseDurationSeconds(timeoutRaw);
+        if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) {
+            return `Invalid resolver.${resolverType}.timeout format`;
+        }
+    }
+
+    if (fields.masquerade?.type === 'string') {
+        const sc = Number(fields.masquerade?.string?.statusCode);
+        if (!Number.isFinite(sc) || sc < 100 || sc > 599) {
+            return 'Masquerade string statusCode must be between 100 and 599';
+        }
+    } else {
+        const proxyUrl = fields.masquerade?.proxy?.url || '';
+        try {
+            const parsed = new URL(proxyUrl);
+            if (!['http:', 'https:'].includes(parsed.protocol)) {
+                return 'Masquerade proxy.url must use http:// or https://';
+            }
+        } catch (_) {
+            return 'Masquerade proxy.url is not a valid URL';
+        }
+    }
+
+    return '';
 }
 
 // Rate limiter для защиты от brute-force
@@ -1083,6 +1443,14 @@ router.post('/nodes', requireAuth, async (req, res) => {
 
         if (nodeType === 'xray') {
             nodeData.xray = parseXrayFormFields(req.body);
+        } else {
+            const hyFields = parseHysteriaFormFields(req.body);
+            const hyValidationError = validateHysteriaFormFields(hyFields);
+            if (hyValidationError) {
+                return res.redirect(`/panel/nodes/add?error=${encodeURIComponent(hyValidationError)}`);
+            }
+            delete hyFields.acmeDnsConfigValid;
+            Object.assign(nodeData, hyFields);
         }
 
         const newNode = await HyNode.create(nodeData);
@@ -1094,11 +1462,56 @@ router.post('/nodes', requireAuth, async (req, res) => {
     }
 });
 
+// POST /panel/nodes/preview-config - generate config preview from current form values
+router.post('/nodes/preview-config', requireAuth, async (req, res) => {
+    try {
+        const nodeType = req.body.type === 'xray' ? 'xray' : 'hysteria';
+        if (nodeType !== 'hysteria') {
+            return res.status(400).json({ success: false, error: 'Preview config supports only Hysteria nodes' });
+        }
+
+        const hyFields = parseHysteriaFormFields(req.body);
+        const hyValidationError = validateHysteriaFormFields(hyFields);
+        if (hyValidationError) {
+            return res.status(400).json({ success: false, error: hyValidationError });
+        }
+        delete hyFields.acmeDnsConfigValid;
+
+        const nodeData = {
+            type: 'hysteria',
+            port: parseInt(req.body.port, 10) || 443,
+            domain: (req.body.domain || '').trim(),
+            sni: (req.body.sni || '').trim(),
+            useTlsFiles: parseBool(req.body, 'useTlsFiles', false),
+            obfs: {
+                type: req.body['obfs.type'] || '',
+                password: req.body['obfs.password'] || '',
+            },
+            statsPort: parseInt(req.body.statsPort, 10) || 9999,
+            statsSecret: req.body.statsSecret || '',
+            outbounds: [],
+            aclRules: hyFields.aclRules || [],
+            ...hyFields,
+        };
+
+        const settings = await Settings.get();
+        const authInsecure = settings?.nodeAuth?.insecure ?? true;
+        const authUrl = `${config.BASE_URL}/api/auth`;
+        const useTlsFiles = nodeData.useTlsFiles || !nodeData.domain;
+
+        const generatedConfig = configGenerator.generateNodeConfig(nodeData, authUrl, { authInsecure, useTlsFiles });
+        return res.json({ success: true, config: generatedConfig });
+    } catch (error) {
+        logger.error('[Panel] Preview config generation error:', error.message);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // GET /panel/nodes/:id - Edit node form
 router.get('/nodes/:id', requireAuth, async (req, res) => {
     try {
         const CascadeLink = require('../models/cascadeLinkModel');
-        const [node, groups, cascadeLinks] = await Promise.all([
+        const [node, groups, cascadeLinks, settings] = await Promise.all([
             HyNode.findById(req.params.id).populate('groups', 'name color'),
             getActiveGroups(),
             CascadeLink.find({
@@ -1106,16 +1519,31 @@ router.get('/nodes/:id', requireAuth, async (req, res) => {
             }).populate('portalNode', 'name ip flag')
               .populate('bridgeNode', 'name ip flag')
               .sort({ createdAt: -1 }),
+            Settings.get(),
         ]);
 
         if (!node) {
             return res.redirect('/panel/nodes');
         }
 
+        let nodeConfigPreview = '';
+        if (node.type !== 'xray') {
+            const customConfig = String(node.customConfig || '').trim();
+            if (node.useCustomConfig && customConfig) {
+                nodeConfigPreview = customConfig;
+            } else {
+                const authInsecure = settings?.nodeAuth?.insecure ?? true;
+                const authUrl = `${config.BASE_URL}/api/auth`;
+                const useTlsFiles = !!(node.useTlsFiles || !node.domain);
+                nodeConfigPreview = configGenerator.generateNodeConfig(node, authUrl, { authInsecure, useTlsFiles });
+            }
+        }
+
         render(res, 'node-form', {
             title: `Edit: ${node.name}`,
             page: 'nodes',
             node,
+            nodeConfigPreview,
             groups,
             cascadeLinks: cascadeLinks || [],
             error: req.query.error || null,
@@ -1159,8 +1587,10 @@ router.post('/nodes/:id', requireAuth, async (req, res) => {
             active: req.body.active === 'on',
             useCustomConfig: req.body.useCustomConfig === 'on',
             customConfig: req.body.customConfig || '',
-            'obfs.type': req.body['obfs.type'] || '',
-            'obfs.password': req.body['obfs.password'] || '',
+            obfs: {
+                type: req.body['obfs.type'] || '',
+                password: req.body['obfs.password'] || '',
+            },
             flag: req.body.flag || '',
             cascadeRole: req.body.cascadeRole || 'standalone',
             country: req.body.country || '',
@@ -1175,6 +1605,14 @@ router.post('/nodes/:id', requireAuth, async (req, res) => {
 
         if (nodeType === 'xray') {
             updates.xray = parseXrayFormFields(req.body);
+        } else {
+            const hyFields = parseHysteriaFormFields(req.body);
+            const hyValidationError = validateHysteriaFormFields(hyFields);
+            if (hyValidationError) {
+                return res.redirect(`/panel/nodes/${nodeId}?error=${encodeURIComponent(hyValidationError)}`);
+            }
+            delete hyFields.acmeDnsConfigValid;
+            Object.assign(updates, hyFields);
         }
 
         // Only update password if provided (encrypt it)
@@ -2606,11 +3044,14 @@ router.get('/nodes/:id/outbounds', requireAuth, async (req, res) => {
         if (!node) {
             return res.redirect('/panel/nodes');
         }
+
+        const aclInlineState = getHysteriaAclInlineState(node);
         
         render(res, 'node-outbounds', {
             title: `Outbounds: ${node.name}`,
             page: 'nodes',
             node,
+            aclInlineState,
             message: req.query.message || null,
             error: req.query.error || null,
         });
@@ -2627,6 +3068,8 @@ router.post('/nodes/:id/outbounds', requireAuth, async (req, res) => {
         if (!node) {
             return res.redirect('/panel/nodes');
         }
+
+        const aclInlineState = getHysteriaAclInlineState(node);
         
         // Парсим outbounds из form-data
         // Формат: outbound[0][name], outbound[0][type], outbound[0][addr], ...
@@ -2658,10 +3101,13 @@ router.post('/nodes/:id/outbounds', requireAuth, async (req, res) => {
         }
         
         // Парсим ACL правила (одна строка = одно правило)
-        const aclRaw = (rawBody.aclRules || '').trim();
-        const aclRules = aclRaw
-            ? aclRaw.split('\n').map(r => r.trim()).filter(Boolean)
-            : [];
+        let aclRules = Array.isArray(node.aclRules) ? node.aclRules : [];
+        if (aclInlineState.editable) {
+            const aclRaw = (rawBody.aclRules || '').trim();
+            aclRules = aclRaw
+                ? aclRaw.split('\n').map(r => r.trim()).filter(Boolean)
+                : [];
+        }
         
         await HyNode.findByIdAndUpdate(req.params.id, {
             $set: { outbounds, aclRules },

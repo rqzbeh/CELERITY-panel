@@ -46,7 +46,7 @@ async function getUserByToken(token) {
             { userId: token }
         ]
     })
-        .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange portConfigs obfs flag xray')
+        .populate('nodes', 'active name type status onlineUsers maxOnlineUsers rankingCoefficient domain sni ip port portRange hopInterval portConfigs obfs flag xray')
         .populate('groups', '_id name subscriptionTitle');
     
     return user;
@@ -82,7 +82,7 @@ async function getActiveNodesWithCache() {
 
     // Include type, xray, obfs, and cascadeRole fields needed for URI generation and filtering
     const nodes = await HyNode.find({ active: true })
-        .select('name type flag ip domain sni port portRange portConfigs obfs active status onlineUsers maxOnlineUsers rankingCoefficient groups xray cascadeRole')
+        .select('name type flag ip domain sni port portRange hopInterval portConfigs obfs active status onlineUsers maxOnlineUsers rankingCoefficient groups xray cascadeRole')
         .lean();
     await cache.setActiveNodes(nodes);
     return nodes;
@@ -188,6 +188,7 @@ function getNodeConfigs(node) {
     const sni = node.domain ? node.domain : (node.sni || '');
     // hasCert: true if domain is set (ACME = valid cert)
     const hasCert = !!node.domain;
+    const hopInterval = node.hopInterval || '';
     
     const obfs = node.obfs?.type || '';
     const obfsPassword = node.obfs?.password || '';
@@ -199,6 +200,7 @@ function getNodeConfigs(node) {
                 host,
                 port: cfg.port,
                 portRange: cfg.portRange || '',
+                hopInterval,
                 sni,
                 hasCert,
                 obfs,
@@ -206,14 +208,36 @@ function getNodeConfigs(node) {
             });
         });
     } else {
-        configs.push({ name: 'TLS', host, port: node.port || 443, portRange: '', sni, hasCert, obfs, obfsPassword });
+        configs.push({ name: 'TLS', host, port: node.port || 443, portRange: '', hopInterval, sni, hasCert, obfs, obfsPassword });
         // Порт 80 убран (используется для ACME)
         if (node.portRange) {
-            configs.push({ name: 'Hopping', host, port: node.port || 443, portRange: node.portRange, sni, hasCert, obfs, obfsPassword });
+            configs.push({ name: 'Hopping', host, port: node.port || 443, portRange: node.portRange, hopInterval, sni, hasCert, obfs, obfsPassword });
         }
     }
     
     return configs;
+}
+
+function parseHopIntervalSeconds(hopInterval) {
+    const raw = String(hopInterval || '').trim().toLowerCase();
+    if (!raw) return 0;
+    const m = raw.match(/^(\d+(\.\d+)?)(ms|s|m|h)?$/);
+    if (!m) return 0;
+    const value = Number(m[1]);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    const unit = m[3] || 's';
+    if (unit === 'ms') return value / 1000;
+    if (unit === 's') return value;
+    if (unit === 'm') return value * 60;
+    if (unit === 'h') return value * 3600;
+    return 0;
+}
+
+function normalizeHopInterval(hopInterval) {
+    const sec = parseHopIntervalSeconds(hopInterval);
+    if (sec <= 0) return '';
+    const normalized = Math.max(Math.ceil(sec), 5);
+    return `${normalized}s`;
 }
 
 // ==================== URI GENERATION ====================
@@ -409,6 +433,8 @@ function generateClashYAML(user, nodes) {
       - h3`;
 
                 if (cfg.portRange) proxy += `\n    ports: ${cfg.portRange}`;
+                const hopIntervalSec = parseHopIntervalSeconds(normalizeHopInterval(cfg.hopInterval));
+                if (hopIntervalSec > 0) proxy += `\n    hop-interval: ${hopIntervalSec}`;
                 if (cfg.obfs === 'salamander' && cfg.obfsPassword) {
                     proxy += `\n    obfs: salamander\n    obfs-password: "${cfg.obfsPassword}"`;
                 }
@@ -519,6 +545,11 @@ function generateSingboxJSON(user, nodes) {
                     outbound.server_ports = [cfg.portRange.replace('-', ':')];
                 } else {
                     outbound.server_port = cfg.port;
+                }
+
+                const hopInterval = normalizeHopInterval(cfg.hopInterval);
+                if (hopInterval) {
+                    outbound.hop_interval = hopInterval;
                 }
 
                 if (cfg.obfs === 'salamander' && cfg.obfsPassword) {

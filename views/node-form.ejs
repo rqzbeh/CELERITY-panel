@@ -6,12 +6,102 @@
 <div class="alert alert-error" style="margin-bottom:16px;"><i class="ti ti-alert-circle"></i> <%= error %></div>
 <% } %>
 
+<%
+const hysteriaDocsByLang = {
+    en: {
+        portHopping: 'https://v2.hysteria.network/docs/advanced/Port-Hopping/',
+        acme: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#tls',
+        acmeDnsConfig: 'https://v2.hysteria.network/docs/advanced/ACME-DNS-Config/',
+        stats: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#traffic-stats-api-http',
+        obfuscation: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#obfuscation',
+        masquerade: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#masquerade',
+        bandwidth: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#bandwidth',
+        speedTest: 'https://v2.hysteria.network/docs/advanced/Speed-Test/',
+        udp: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#udp',
+        sniff: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#protocol-sniffing',
+        quic: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#quic-parameters',
+        resolver: 'https://v2.hysteria.network/docs/advanced/Full-Server-Config/#resolver',
+        acl: 'https://v2.hysteria.network/docs/advanced/ACL/',
+    },
+    ru: {
+        portHopping: 'https://v2.hysteria.network/ru/docs/advanced/Port-Hopping/',
+        acme: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#tls',
+        acmeDnsConfig: 'https://v2.hysteria.network/ru/docs/advanced/ACME-DNS-Config/',
+        stats: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#api-http',
+        obfuscation: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#_2',
+        masquerade: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#_13',
+        bandwidth: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#_3',
+        speedTest: 'https://v2.hysteria.network/ru/docs/advanced/Speed-Test/',
+        udp: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#udp',
+        sniff: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#_11',
+        quic: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#quic',
+        resolver: 'https://v2.hysteria.network/ru/docs/advanced/Full-Server-Config/#_10',
+        acl: 'https://v2.hysteria.network/ru/docs/advanced/ACL/',
+    },
+};
+const hysteriaDocs = hysteriaDocsByLang[lang] || hysteriaDocsByLang.en || {};
+function docsHref(section) {
+    return hysteriaDocs[section] || '';
+}
+function escAttr(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+function renderDocsIcon(section) {
+    const href = docsHref(section);
+    if (!href) return '';
+    const label = escAttr(t('nodes.docsLink'));
+    return `<a class="docs-hint-link" href="${href}" target="_blank" rel="noopener noreferrer" title="${label}" aria-label="${label}">ⓘ</a>`;
+}
+const acmeAdvancedEnabled = !!(
+    (node?.acme?.listenHost && node.acme.listenHost !== '0.0.0.0') ||
+    node?.acme?.type ||
+    node?.acme?.httpAltPort ||
+    node?.acme?.tlsAltPort ||
+    node?.acme?.dnsName ||
+    (node?.acme?.dnsConfig && Object.keys(node.acme.dnsConfig || {}).length > 0)
+);
+const bandwidthEnabled = !!(node?.bandwidth?.up || node?.bandwidth?.down || node?.ignoreClientBandwidth);
+const udpOptionsEnabled = !!(node?.disableUDP || node?.udpIdleTimeout);
+const sniffAdvancedEnabled = !!(
+    node?.sniff?.enabled ||
+    (node?.sniff?.timeout && node.sniff.timeout !== '2s') ||
+    node?.sniff?.rewriteDomain ||
+    (node?.sniff?.tcpPorts && node.sniff.tcpPorts !== '80,443,8000-9000') ||
+    (node?.sniff?.udpPorts && node.sniff.udpPorts !== '443,80,53')
+);
+const quicSectionEnabled = !!(
+    node?.quic?.enabled ||
+    (node?.quic?.initStreamReceiveWindow != null && Number(node.quic.initStreamReceiveWindow) !== 8388608) ||
+    (node?.quic?.maxStreamReceiveWindow != null && Number(node.quic.maxStreamReceiveWindow) !== 8388608) ||
+    (node?.quic?.initConnReceiveWindow != null && Number(node.quic.initConnReceiveWindow) !== 20971520) ||
+    (node?.quic?.maxConnReceiveWindow != null && Number(node.quic.maxConnReceiveWindow) !== 20971520) ||
+    (node?.quic?.maxIdleTimeout && node.quic.maxIdleTimeout !== '60s') ||
+    (node?.quic?.maxIncomingStreams != null && Number(node.quic.maxIncomingStreams) !== 256) ||
+    node?.quic?.disablePathMTUDiscovery
+);
+const aclSectionEnabled = node ? (node?.acl?.enabled !== false) : true;
+const sniffBaseEnabled = node?.sniff?.enable !== false;
+const aclDefaultInlineRules = ['reject(geoip:cn)', 'reject(geoip:private)'];
+const aclInlineRulesValue = (node?.aclRules && node.aclRules.length > 0)
+    ? node.aclRules.join('\n')
+    : aclDefaultInlineRules.join('\n');
+const sniDomainActive = !!String(node?.domain || '').trim();
+const sniVisibleInitially = node?.type !== 'xray' && !sniDomainActive;
+const outboundsAclReason = node?.type === 'hysteria' && node?.acl?.enabled === false ? 'disabled' : '';
+const outboundsAclLocked = outboundsAclReason === 'disabled';
+%>
+
 <div class="card">
     <div class="card-header">
         <h2><%= node ? t('nodes.editNode') : t('nodes.newNode') %></h2>
     </div>
     <div class="card-body">
-        <form method="POST" action="/panel/nodes<%= node ? '/' + node._id : '' %>" class="form">
+        <form id="nodeForm" method="POST" action="/panel/nodes<%= node ? '/' + node._id : '' %>" class="form">
+            <input type="hidden" name="useTlsFiles" value="<%= node?.useTlsFiles ? '1' : '0' %>">
 
             <%# ========== 1. Identification ========== %>
             <div class="form-row-3">
@@ -157,6 +247,12 @@
                     </div>
                 </div>
 
+                <div class="form-group hysteria-only" id="hopIntervalGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                    <label for="hopInterval"><%= t('nodes.hopInterval') %></label>
+                    <input type="text" id="hopInterval" name="hopInterval" value="<%= node?.hopInterval || '' %>" placeholder="30s">
+                    <small><%- renderDocsIcon('portHopping') %><%= t('nodes.hopIntervalHint') %></small>
+                </div>
+
                 <div id="xrayPortConflictWarn" class="alert alert-error" style="display:none;">
                     <i class="ti ti-alert-triangle"></i>
                     <strong><%= t('nodes.portConflictTitle') %>:</strong>
@@ -166,11 +262,77 @@
                 <div class="form-group hysteria-only" id="domainGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
                     <label for="domain"><%= t('nodes.domain') %></label>
                     <input type="text" id="domain" name="domain" value="<%= node?.domain || '' %>"
-                           placeholder="de.example.com">
+                           placeholder="de.example.com" oninput="toggleAcmeByDomain()">
                     <small><%= t('nodes.domainHintHysteria') %></small>
                 </div>
 
-                <div class="form-group hysteria-only" id="sniGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <div class="form-group hysteria-only" id="acmeAdvancedToggleGroup" style="<%= node?.type === 'xray' || !node?.domain ? 'display:none' : '' %>">
+                    <div class="section-subtitle"><%= t('nodes.sectionAcmeAdvanced') %> (<%= t('nodes.optionalSuffix') %>)</div>
+                    <small class="section-hint"><%- renderDocsIcon('acme') %><%= t('nodes.sectionAcmeAdvancedHint') %></small>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="acmeEmail"><%= t('nodes.acmeEmail') %></label>
+                            <input type="text" id="acmeEmail" name="acme.email" value="<%= node?.acme?.email || '' %>" placeholder="admin@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="acmeCa"><%= t('nodes.acmeCa') %></label>
+                            <select id="acmeCa" name="acme.ca">
+                                <option value="letsencrypt" <%= (node?.acme?.ca || 'letsencrypt') === 'letsencrypt' ? 'selected' : '' %>>Let's Encrypt</option>
+                                <option value="zerossl" <%= node?.acme?.ca === 'zerossl' ? 'selected' : '' %>>ZeroSSL</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="acmeAdvancedEnabled" name="acme.advanced.enabled" <%= acmeAdvancedEnabled ? 'checked' : '' %> onchange="toggleAcmeAdvancedFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
+                    </label>
+                </div>
+
+                <div class="hysteria-only optional-fields-wrap" id="acmeAdvancedFieldsWrap" style="<%= node?.type === 'xray' || !node?.domain || !acmeAdvancedEnabled ? 'display:none' : '' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="acmeListenHost"><%= t('nodes.acmeListenHost') %></label>
+                            <input type="text" id="acmeListenHost" name="acme.listenHost" value="<%= node?.acme?.listenHost || '0.0.0.0' %>" placeholder="0.0.0.0">
+                        </div>
+                        <div class="form-group">
+                            <label for="acmeType"><%= t('nodes.acmeType') %></label>
+                            <select id="acmeType" name="acme.type" onchange="toggleAcmeTypeFields()">
+                                <option value="" <%= !node?.acme?.type ? 'selected' : '' %>><%= t('nodes.acmeTypeAuto') %></option>
+                                <option value="http" <%= node?.acme?.type === 'http' ? 'selected' : '' %>>HTTP-01</option>
+                                <option value="tls" <%= node?.acme?.type === 'tls' ? 'selected' : '' %>>TLS-ALPN-01</option>
+                                <option value="dns" <%= node?.acme?.type === 'dns' ? 'selected' : '' %>>DNS-01</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row" id="acmeAltPortFields" style="<%= (node?.acme?.type === 'http' || node?.acme?.type === 'tls') ? '' : 'display:none' %>">
+                        <div class="form-group <%= node?.acme?.type && node?.acme?.type !== 'http' ? 'is-inactive' : '' %>" id="acmeHttpFieldGroup">
+                            <label for="acmeHttpAltPort"><%= t('nodes.acmeHttpAltPort') %></label>
+                            <input type="number" id="acmeHttpAltPort" name="acme.httpAltPort" value="<%= node?.acme?.httpAltPort || '' %>" placeholder="8080" min="1" max="65535">
+                        </div>
+                        <div class="form-group <%= node?.acme?.type && node?.acme?.type !== 'tls' ? 'is-inactive' : '' %>" id="acmeTlsFieldGroup">
+                            <label for="acmeTlsAltPort"><%= t('nodes.acmeTlsAltPort') %></label>
+                            <input type="number" id="acmeTlsAltPort" name="acme.tlsAltPort" value="<%= node?.acme?.tlsAltPort || '' %>" placeholder="8443" min="1" max="65535">
+                        </div>
+                    </div>
+
+                    <div id="acmeDnsFields" style="<%= node?.acme?.type === 'dns' ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="acmeDnsName"><%= t('nodes.acmeDnsName') %></label>
+                                <input type="text" id="acmeDnsName" name="acme.dns.name" value="<%= node?.acme?.dnsName || '' %>" placeholder="cloudflare">
+                                <small><%- renderDocsIcon('acmeDnsConfig') %><%= t('nodes.acmeDnsProviderHint') %></small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="acmeDnsConfig"><%= t('nodes.acmeDnsConfig') %></label>
+                            <textarea id="acmeDnsConfig" name="acme.dns.config" rows="6" class="code-textarea" placeholder='{"cloudflare_api_token":"..."}'><%= node?.acme?.dnsConfig && Object.keys(node.acme.dnsConfig || {}).length ? JSON.stringify(node.acme.dnsConfig, null, 2) : '' %></textarea>
+                            <small><%= t('nodes.acmeDnsConfigHint') %></small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group hysteria-only" id="sniGroup" style="<%= sniVisibleInitially ? '' : 'display:none' %>">
                     <label for="sni">SNI</label>
                     <input type="text" id="sni" name="sni" value="<%= node?.sni || '' %>"
                            placeholder="bing.com">
@@ -181,6 +343,7 @@
             <%# ========== 5. Hysteria: Stats API ========== %>
             <div class="form-section hysteria-only" id="hysteriaStatsSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
                 <h3><%= t('nodes.statsPort') %> API</h3>
+                <small class="section-hint"><%- renderDocsIcon('stats') %><%= t('nodes.sectionStatsHint') %></small>
                 <div class="form-row">
                     <div class="form-group">
                         <label for="statsPort"><%= t('nodes.statsPort') %></label>
@@ -201,7 +364,7 @@
             <%# ========== 6. Hysteria: Obfuscation ========== %>
             <div class="form-section hysteria-only" id="hysteriaObfsSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
                 <h3><%= t('nodes.sectionObfuscation') %></h3>
-                <small class="section-hint"><%= t('nodes.sectionObfuscationHint') %></small>
+                <small class="section-hint"><%- renderDocsIcon('obfuscation') %><%= t('nodes.sectionObfuscationHint') %></small>
                 <div class="form-row">
                     <div class="form-group">
                         <label for="obfsType"><%= t('nodes.obfsType') %></label>
@@ -223,7 +386,382 @@
                 </div>
             </div>
 
-            <%# ========== 7. Xray VLESS Settings ========== %>
+            <%# ========== 7. Hysteria: Masquerade ========== %>
+            <div class="form-section hysteria-only" id="hysteriaMasqueradeSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionMasquerade') %></h3>
+                <small class="section-hint"><%- renderDocsIcon('masquerade') %><%= t('nodes.sectionMasqueradeHint') %></small>
+
+                <div class="form-group">
+                    <label for="masqueradeType"><%= t('nodes.masqueradeType') %></label>
+                    <select id="masqueradeType" name="masquerade.type" onchange="toggleMasqueradeType()">
+                        <option value="proxy" <%= (node?.masquerade?.type || 'proxy') === 'proxy' ? 'selected' : '' %>>proxy</option>
+                        <option value="string" <%= node?.masquerade?.type === 'string' ? 'selected' : '' %>>string</option>
+                    </select>
+                </div>
+
+                <div id="masqueradeProxyFields" style="<%= (node?.masquerade?.type || 'proxy') === 'proxy' ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="masqProxyUrl"><%= t('nodes.masqueradeProxyUrl') %></label>
+                            <input type="text" id="masqProxyUrl" name="masquerade.proxy.url" value="<%= node?.masquerade?.proxy?.url || 'https://www.google.com' %>" placeholder="https://www.google.com">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="masquerade.proxy.rewriteHost" <%= node?.masquerade?.proxy?.rewriteHost === false ? '' : 'checked' %>>
+                                <span class="checkbox-text"><%= t('nodes.masqueradeProxyRewriteHost') %></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="masquerade.proxy.insecure" <%= node?.masquerade?.proxy?.insecure ? 'checked' : '' %>>
+                                <span class="checkbox-text"><%= t('nodes.masqueradeProxyInsecure') %></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="masqueradeStringFields" style="<%= node?.masquerade?.type === 'string' ? '' : 'display:none' %>">
+                    <div class="form-group">
+                        <label for="masqStringContent"><%= t('nodes.masqueradeStringContent') %></label>
+                        <textarea id="masqStringContent" name="masquerade.string.content" rows="8" class="code-textarea" placeholder="Service Unavailable"><%= node?.masquerade?.string?.content || 'Service Unavailable' %></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="masqStringStatusCode"><%= t('nodes.masqueradeStringStatusCode') %></label>
+                            <input type="number" id="masqStringStatusCode" name="masquerade.string.statusCode" value="<%= node?.masquerade?.string?.statusCode || 503 %>" min="100" max="599">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="masqStringHeaders"><%= t('nodes.masqueradeStringHeaders') %></label>
+                        <textarea id="masqStringHeaders" name="masquerade.string.headers" rows="4" class="code-textarea" placeholder="content-type: text/plain"><%= node?.masquerade?.string?.headers ? Object.entries(node.masquerade.string.headers).map(([k, v]) => `${k}: ${v}`).join('\n') : 'content-type: text/plain' %></textarea>
+                        <small><%= t('nodes.masqueradeStringHeadersHint') %></small>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="masqListenHttp"><%= t('nodes.masqueradeListenHttp') %></label>
+                        <input type="text" id="masqListenHttp" name="masquerade.listenHTTP" value="<%= node?.masquerade?.listenHTTP || '' %>" placeholder=":80">
+                    </div>
+                    <div class="form-group">
+                        <label for="masqListenHttps"><%= t('nodes.masqueradeListenHttps') %></label>
+                        <input type="text" id="masqListenHttps" name="masquerade.listenHTTPS" value="<%= node?.masquerade?.listenHTTPS || '' %>" placeholder=":443">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="masqForceHttps" name="masquerade.forceHTTPS" <%= node?.masquerade?.forceHTTPS ? 'checked' : '' %>>
+                        <span class="checkbox-text"><%= t('nodes.masqueradeForceHttps') %></span>
+                    </label>
+                </div>
+            </div>
+
+            <%# ========== 8. Hysteria: Protocol Sniffing ========== %>
+            <div class="form-section hysteria-only" id="hysteriaSniffSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionSniff') %></h3>
+                <small class="section-hint">
+                    <%- renderDocsIcon('sniff') %>
+                    <%= t('nodes.sectionSniffHint') %>
+                </small>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="hidden" name="sniff.enable" value="0">
+                        <input type="checkbox" name="sniff.enable" <%= sniffBaseEnabled ? 'checked' : '' %>>
+                        <span class="checkbox-text"><%= t('nodes.sniffEnable') %></span>
+                    </label>
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="sniffEnabled" name="sniff.enabled" <%= sniffAdvancedEnabled ? 'checked' : '' %> onchange="toggleSniffFields()">
+                    <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
+                </label>
+                <div class="optional-fields-wrap" id="sniffFieldsWrap" style="<%= sniffAdvancedEnabled ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="sniff.rewriteDomain" <%= node?.sniff?.rewriteDomain ? 'checked' : '' %>>
+                                <span class="checkbox-text"><%= t('nodes.sniffRewriteDomain') %></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="sniffTimeout"><%= t('nodes.sniffTimeout') %></label>
+                            <input type="text" id="sniffTimeout" name="sniff.timeout" value="<%= node?.sniff?.timeout || '2s' %>" placeholder="2s">
+                        </div>
+                        <div class="form-group">
+                            <label for="sniffTcpPorts"><%= t('nodes.sniffTcpPorts') %></label>
+                            <input type="text" id="sniffTcpPorts" name="sniff.tcpPorts" value="<%= node?.sniff?.tcpPorts || '80,443,8000-9000' %>" placeholder="80,443,8000-9000">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="sniffUdpPorts"><%= t('nodes.sniffUdpPorts') %></label>
+                        <input type="text" id="sniffUdpPorts" name="sniff.udpPorts" value="<%= node?.sniff?.udpPorts || '443,80,53' %>" placeholder="443,80,53">
+                        <small><%= t('nodes.sniffPortsHint') %></small>
+                    </div>
+                </div>
+            </div>
+
+            <%# ========== 8. Hysteria: ACL Settings ========== %>
+            <div class="form-section hysteria-only" id="hysteriaAclSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionAcl') %></h3>
+                <small class="section-hint"><%- renderDocsIcon('acl') %><%= t('nodes.sectionAclHint') %></small>
+                <label class="checkbox-label">
+                    <input type="hidden" name="acl.enabled" value="0">
+                    <input type="checkbox" id="aclEnabled" name="acl.enabled" <%= aclSectionEnabled ? 'checked' : '' %> onchange="toggleAclFields()">
+                    <span class="checkbox-text"><%= t('nodes.enableAcl') %></span>
+                </label>
+
+                <div class="optional-fields-wrap" id="aclFieldsWrap" style="<%= aclSectionEnabled ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group" id="aclTypeGroup" style="<%= aclSectionEnabled && node?.acl?.type === 'file' ? '' : 'grid-column: 1 / -1;' %>">
+                            <label for="aclType"><%= t('nodes.aclType') %></label>
+                            <select id="aclType" name="acl.type" onchange="toggleAclTypeFields()">
+                                <option value="inline" <%= (node?.acl?.type || 'inline') === 'inline' ? 'selected' : '' %>>inline</option>
+                                <option value="file" <%= node?.acl?.type === 'file' ? 'selected' : '' %>>file</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="aclFileGroup" style="<%= aclSectionEnabled && node?.acl?.type === 'file' ? '' : 'display:none' %>">
+                            <label for="aclFile"><%= t('nodes.aclFile') %></label>
+                            <input type="text" id="aclFile" name="acl.file" value="<%= node?.acl?.file || '' %>" placeholder="/etc/hysteria/acl.txt">
+                        </div>
+                    </div>
+                    <div class="form-group" id="aclInlineRulesGroup" style="<%= aclSectionEnabled && (node?.acl?.type || 'inline') === 'inline' ? '' : 'display:none' %>">
+                        <label for="aclInlineRules"><%= t('nodes.aclInlineRules') %></label>
+                        <textarea id="aclInlineRules" name="acl.inlineRules" rows="8" class="code-textarea" placeholder="reject(geoip:cn)&#10;reject(geoip:private)"><%= aclInlineRulesValue %></textarea>
+                        <small><%= t('nodes.aclInlineRulesHint') %></small>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="aclGeoip"><%= t('nodes.aclGeoip') %></label>
+                            <input type="text" id="aclGeoip" name="acl.geoip" value="<%= node?.acl?.geoip || '' %>" placeholder="/etc/hysteria/geoip.dat">
+                        </div>
+                        <div class="form-group">
+                            <label for="aclGeosite"><%= t('nodes.aclGeosite') %></label>
+                            <input type="text" id="aclGeosite" name="acl.geosite" value="<%= node?.acl?.geosite || '' %>" placeholder="/etc/hysteria/geosite.dat">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="aclGeoUpdateInterval"><%= t('nodes.aclGeoUpdateInterval') %></label>
+                        <input type="text" id="aclGeoUpdateInterval" name="acl.geoUpdateInterval" value="<%= node?.acl?.geoUpdateInterval || '' %>" placeholder="168h">
+                    </div>
+                </div>
+            </div>
+
+            <%# ========== 9. Hysteria: Bandwidth ========== %>
+            <div class="form-section hysteria-only" id="hysteriaBandwidthSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionBandwidth') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                <small class="section-hint"><%- renderDocsIcon('bandwidth') %><%= t('nodes.sectionBandwidthHint') %></small>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="bandwidthEnabled" name="bandwidth.enabled" <%= bandwidthEnabled ? 'checked' : '' %> onchange="toggleBandwidthFields()">
+                    <span class="checkbox-text"><%= t('nodes.enableBandwidth') %></span>
+                </label>
+                <div class="optional-fields-wrap" id="bandwidthFieldsWrap" style="<%= bandwidthEnabled ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bandwidthUp"><%= t('nodes.bandwidthUp') %></label>
+                            <input type="text" id="bandwidthUp" name="bandwidth.up" value="<%= node?.bandwidth?.up || '' %>" placeholder="100 mbps">
+                        </div>
+                        <div class="form-group">
+                            <label for="bandwidthDown"><%= t('nodes.bandwidthDown') %></label>
+                            <input type="text" id="bandwidthDown" name="bandwidth.down" value="<%= node?.bandwidth?.down || '' %>" placeholder="100 mbps">
+                        </div>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="ignoreClientBandwidth" <%= node?.ignoreClientBandwidth ? 'checked' : '' %>>
+                        <span class="checkbox-text"><%= t('nodes.ignoreClientBandwidth') %></span>
+                    </label>
+                </div>
+            </div>
+
+            <%# ========== 9. Hysteria: Speed Test ========== %>
+            <div class="form-section hysteria-only" id="hysteriaSpeedTestSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionSpeedTest') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                <small class="section-hint"><%- renderDocsIcon('speedTest') %><%= t('nodes.sectionSpeedTestHint') %></small>
+                <label class="checkbox-label">
+                    <input type="checkbox" name="speedTest" <%= node?.speedTest ? 'checked' : '' %>>
+                    <span class="checkbox-text"><%= t('nodes.speedTest') %></span>
+                </label>
+            </div>
+
+            <%# ========== 10. Hysteria: UDP ========== %>
+            <div class="form-section hysteria-only" id="hysteriaUdpSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionUdp') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                <small class="section-hint"><%- renderDocsIcon('udp') %><%= t('nodes.sectionUdpHint') %></small>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="udpOptionsEnabled" name="udp.options.enabled" <%= udpOptionsEnabled ? 'checked' : '' %> onchange="toggleUdpFields()">
+                    <span class="checkbox-text"><%= t('nodes.enableUdpTweaks') %></span>
+                </label>
+                <div class="optional-fields-wrap" id="udpFieldsWrap" style="<%= udpOptionsEnabled ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="disableUDP" <%= node?.disableUDP ? 'checked' : '' %>>
+                                <span class="checkbox-text"><%= t('nodes.disableUdp') %></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="udpIdleTimeout"><%= t('nodes.udpIdleTimeout') %></label>
+                            <input type="text" id="udpIdleTimeout" name="udpIdleTimeout" value="<%= node?.udpIdleTimeout || '' %>" placeholder="60s">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <%# ========== 12. Hysteria: QUIC Parameters ========== %>
+            <div class="form-section hysteria-only" id="hysteriaQuicSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionQuic') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                <small class="section-hint">
+                    <%- renderDocsIcon('quic') %>
+                    <%= t('nodes.sectionQuicHint') %>
+                </small>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="quicEnabled" name="quic.enabled" <%= quicSectionEnabled ? 'checked' : '' %> onchange="toggleQuicFields()">
+                    <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
+                </label>
+                <div class="optional-fields-wrap" id="quicFieldsWrap" style="<%= quicSectionEnabled ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="quicInitStreamReceiveWindow"><%= t('nodes.quicInitStreamReceiveWindow') %></label>
+                            <input type="number" id="quicInitStreamReceiveWindow" name="quic.initStreamReceiveWindow" value="<%= node?.quic?.initStreamReceiveWindow || 8388608 %>" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="quicMaxStreamReceiveWindow"><%= t('nodes.quicMaxStreamReceiveWindow') %></label>
+                            <input type="number" id="quicMaxStreamReceiveWindow" name="quic.maxStreamReceiveWindow" value="<%= node?.quic?.maxStreamReceiveWindow || 8388608 %>" min="1">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="quicInitConnReceiveWindow"><%= t('nodes.quicInitConnReceiveWindow') %></label>
+                            <input type="number" id="quicInitConnReceiveWindow" name="quic.initConnReceiveWindow" value="<%= node?.quic?.initConnReceiveWindow || 20971520 %>" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="quicMaxConnReceiveWindow"><%= t('nodes.quicMaxConnReceiveWindow') %></label>
+                            <input type="number" id="quicMaxConnReceiveWindow" name="quic.maxConnReceiveWindow" value="<%= node?.quic?.maxConnReceiveWindow || 20971520 %>" min="1">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="quicMaxIdleTimeout"><%= t('nodes.quicMaxIdleTimeout') %></label>
+                            <input type="text" id="quicMaxIdleTimeout" name="quic.maxIdleTimeout" value="<%= node?.quic?.maxIdleTimeout || '60s' %>" placeholder="60s">
+                        </div>
+                        <div class="form-group">
+                            <label for="quicMaxIncomingStreams"><%= t('nodes.quicMaxIncomingStreams') %></label>
+                            <input type="number" id="quicMaxIncomingStreams" name="quic.maxIncomingStreams" value="<%= node?.quic?.maxIncomingStreams || 256 %>" min="1">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="quic.disablePathMTUDiscovery" <%= node?.quic?.disablePathMTUDiscovery ? 'checked' : '' %>>
+                            <span class="checkbox-text"><%= t('nodes.quicDisablePathMtuDiscovery') %></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <%# ========== 13. Hysteria: Resolver ========== %>
+            <div class="form-section hysteria-only" id="hysteriaResolverSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <h3><%= t('nodes.sectionResolver') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                <small class="section-hint"><%- renderDocsIcon('resolver') %><%= t('nodes.sectionResolverHint') %></small>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="resolverEnabled" name="resolver.enabled" <%= node?.resolver?.enabled ? 'checked' : '' %> onchange="toggleResolverFields()">
+                    <span class="checkbox-text"><%= t('nodes.resolverEnabled') %></span>
+                </label>
+
+                <div class="optional-fields-wrap" id="resolverFieldsWrap" style="<%= node?.resolver?.enabled ? '' : 'display:none' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="resolverType"><%= t('nodes.resolverType') %></label>
+                            <select id="resolverType" name="resolver.type" onchange="toggleResolverTypeFields()">
+                                <option value="udp" <%= (node?.resolver?.type || 'udp') === 'udp' ? 'selected' : '' %>>udp</option>
+                                <option value="tcp" <%= node?.resolver?.type === 'tcp' ? 'selected' : '' %>>tcp</option>
+                                <option value="tls" <%= node?.resolver?.type === 'tls' ? 'selected' : '' %>>tls</option>
+                                <option value="https" <%= node?.resolver?.type === 'https' ? 'selected' : '' %>>https</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="resolverUdpFields" style="<%= (node?.resolver?.type || 'udp') === 'udp' ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverUdpAddr"><%= t('nodes.resolverAddr') %></label>
+                                <input type="text" id="resolverUdpAddr" name="resolver.udp.addr" value="<%= node?.resolver?.udpAddr || '8.8.4.4:53' %>" placeholder="8.8.4.4:53">
+                            </div>
+                            <div class="form-group">
+                                <label for="resolverUdpTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                <input type="text" id="resolverUdpTimeout" name="resolver.udp.timeout" value="<%= node?.resolver?.udpTimeout || '4s' %>" placeholder="4s">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="resolverTcpFields" style="<%= node?.resolver?.type === 'tcp' ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverTcpAddr"><%= t('nodes.resolverAddr') %></label>
+                                <input type="text" id="resolverTcpAddr" name="resolver.tcp.addr" value="<%= node?.resolver?.tcpAddr || '8.8.8.8:53' %>" placeholder="8.8.8.8:53">
+                            </div>
+                            <div class="form-group">
+                                <label for="resolverTcpTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                <input type="text" id="resolverTcpTimeout" name="resolver.tcp.timeout" value="<%= node?.resolver?.tcpTimeout || '4s' %>" placeholder="4s">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="resolverTlsFields" style="<%= node?.resolver?.type === 'tls' ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverTlsAddr"><%= t('nodes.resolverAddr') %></label>
+                                <input type="text" id="resolverTlsAddr" name="resolver.tls.addr" value="<%= node?.resolver?.tlsAddr || '1.1.1.1:853' %>" placeholder="1.1.1.1:853">
+                            </div>
+                            <div class="form-group">
+                                <label for="resolverTlsTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                <input type="text" id="resolverTlsTimeout" name="resolver.tls.timeout" value="<%= node?.resolver?.tlsTimeout || '10s' %>" placeholder="10s">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverTlsSni"><%= t('nodes.resolverSni') %></label>
+                                <input type="text" id="resolverTlsSni" name="resolver.tls.sni" value="<%= node?.resolver?.tlsSni || 'cloudflare-dns.com' %>" placeholder="cloudflare-dns.com">
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="resolver.tls.insecure" <%= node?.resolver?.tlsInsecure ? 'checked' : '' %>>
+                                    <span class="checkbox-text"><%= t('nodes.resolverInsecure') %></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="resolverHttpsFields" style="<%= node?.resolver?.type === 'https' ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverHttpsAddr"><%= t('nodes.resolverAddr') %></label>
+                                <input type="text" id="resolverHttpsAddr" name="resolver.https.addr" value="<%= node?.resolver?.httpsAddr || '1.1.1.1:443' %>" placeholder="1.1.1.1:443">
+                            </div>
+                            <div class="form-group">
+                                <label for="resolverHttpsTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                <input type="text" id="resolverHttpsTimeout" name="resolver.https.timeout" value="<%= node?.resolver?.httpsTimeout || '10s' %>" placeholder="10s">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverHttpsSni"><%= t('nodes.resolverSni') %></label>
+                                <input type="text" id="resolverHttpsSni" name="resolver.https.sni" value="<%= node?.resolver?.httpsSni || 'cloudflare-dns.com' %>" placeholder="cloudflare-dns.com">
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="resolver.https.insecure" <%= node?.resolver?.httpsInsecure ? 'checked' : '' %>>
+                                    <span class="checkbox-text"><%= t('nodes.resolverInsecure') %></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <%# ========== 12. Xray VLESS Settings ========== %>
             <div class="form-section" id="xraySection" style="<%= (node?.type || 'hysteria') !== 'xray' ? 'display:none' : '' %>">
                 <h3><img src="/img/xray.svg" alt="Xray" style="width:18px;height:18px;vertical-align:middle;margin-right:8px;"><%= t('nodes.xraySettings') %></h3>
 
@@ -469,7 +1007,7 @@
                         <input type="checkbox" name="useCustomConfig" id="useCustomConfig"
                                <%= node?.useCustomConfig ? 'checked' : '' %>
                                onchange="toggleCustomConfig()">
-                        <%= t('nodes.useCustomConfig') %>
+                        <span class="checkbox-text"><%= t('nodes.useCustomConfig') %></span>
                     </label>
                     <small><%= t('nodes.customConfigHint') %></small>
                 </div>
@@ -491,7 +1029,7 @@
             <div class="form-group" style="margin-top:24px;">
                 <label class="checkbox-label">
                     <input type="checkbox" name="active" <%= node?.active !== false ? 'checked' : '' %>>
-                    <%= t('nodes.nodeActive') %>
+                    <span class="checkbox-text"><%= t('nodes.nodeActive') %></span>
                 </label>
             </div>
 
@@ -645,6 +1183,15 @@
                 <span class="action-icon"><i class="ti ti-settings"></i></span>
                 <span><%= t('nodes.autoSetup') %></span>
             </button>
+            <% if (outboundsAclLocked) { %>
+            <span class="action-btn is-disabled" style="text-decoration:none;text-align:center;" title="<%= t('nodes.outboundsAclLockedDisabled') %>" aria-disabled="true">
+                <span class="action-icon"><i class="ti ti-arrow-up-right"></i></span>
+                <span>Outbounds</span>
+                <% if (node.outbounds && node.outbounds.length > 0) { %>
+                <span class="badge" style="font-size:10px;background:var(--accent);color:#fff;border-radius:10px;padding:1px 6px;margin-left:4px;"><%= node.outbounds.length %></span>
+                <% } %>
+            </span>
+            <% } else { %>
             <a href="/panel/nodes/<%= node._id %>/outbounds" class="action-btn" style="text-decoration:none;text-align:center;">
                 <span class="action-icon"><i class="ti ti-arrow-up-right"></i></span>
                 <span>Outbounds</span>
@@ -652,6 +1199,7 @@
                 <span class="badge" style="font-size:10px;background:var(--accent);color:#fff;border-radius:10px;padding:1px 6px;margin-left:4px;"><%= node.outbounds.length %></span>
                 <% } %>
             </a>
+            <% } %>
             <% if (node.ssh?.privateKey) { %>
             <a href="/panel/nodes/<%= node._id %>/download-ssh-key" class="action-btn" style="text-decoration:none;text-align:center;">
                 <span class="action-icon"><i class="ti ti-download"></i></span>
@@ -680,6 +1228,12 @@
                 <span><%= t('nodes.resetStatus') %></span>
             </button>
         </div>
+        <% if (outboundsAclLocked) { %>
+        <div class="alert alert-warning mt-2">
+            <i class="ti ti-info-circle"></i>
+            <%= t('nodes.outboundsAclLockedDisabled') %>
+        </div>
+        <% } %>
         <div id="setupResult" class="mt-2"></div>
         <div id="logsContainer" class="mt-2" style="display:none;">
             <div class="logs-header">
@@ -699,37 +1253,11 @@
         <h2><%= t('nodes.nodeConfig') %></h2>
     </div>
     <div class="card-body">
-        <p class="hint"><%- t('nodes.configHint') %></p>
-        <pre class="code-block"><code>listen: :<%= node.port %>
-
-tls:
-<% if (node.domain) { %>
-  acme:
-    domains:
-      - <%= node.domain %>
-    email: admin@<%= node.domain %>
-<% } else { %>
-  cert: /etc/hysteria/cert.pem
-  key: /etc/hysteria/key.pem
-<% } %>
-  sniGuard: strict
-
-auth:
-  type: http
-  http:
-    url: <%= baseUrl %>/api/auth
-    insecure: false
-
-masquerade:
-  type: string
-  string:
-    content: "Hello World"
-    statusCode: 200
-
-acl:
-  inline:
-    - reject(geoip:cn)</code></pre>
-        <button class="btn btn-sm" onclick="copyConfig()"><%= t('common.copy') %></button>
+        <p class="hint config-hint"><%- t('nodes.configHint') %></p>
+        <div class="code-block-wrap">
+            <pre class="code-block" id="nodeConfigCode"><code><%= nodeConfigPreview || '' %></code></pre>
+            <button type="button" class="config-copy-btn" id="nodeConfigCopyBtn" onclick="copyConfig(this)"><%= t('common.copy') %></button>
+        </div>
     </div>
 </div>
 <% } %>
@@ -758,6 +1286,12 @@ acl:
 .proto-icon { font-size: 22px; }
 .proto-name { font-weight: 600; font-size: 14px; }
 .proto-desc { font-size: 11px; color: var(--text-muted); }
+.section-subtitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
 
 .code-textarea {
     font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
@@ -775,6 +1309,42 @@ acl:
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.code-block-wrap {
+    position: relative;
+    margin-top: 10px;
+}
+.code-block {
+    margin: 0;
+    padding: 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre;
+}
+.config-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+.config-copy-btn.is-copied {
+    color: var(--success);
+    border-color: var(--success);
+}
+.config-hint {
+    margin-bottom: 0;
 }
 .input-with-button {
     display: flex;
@@ -843,6 +1413,9 @@ acl:
 .logs-output .error { color: #ff6b6b; }
 .logs-output .success { color: #51cf66; }
 .logs-output .warning { color: #ffd43b; }
+.form-group.is-inactive {
+    opacity: 0.55;
+}
 
 @media (max-width: 640px) {
     .form-row-3 { grid-template-columns: 1fr; }
@@ -912,6 +1485,15 @@ function switchProto(proto) {
         labelHysteria.classList.add('active');
         labelXray.classList.remove('active');
         hysteriaOnlyEls.forEach(el => el.style.display = '');
+        toggleAcmeByDomain();
+        toggleObfsPassword();
+        toggleMasqueradeType();
+        toggleBandwidthFields();
+        toggleUdpFields();
+        toggleSniffFields();
+        toggleQuicFields();
+        toggleResolverFields();
+        toggleAclFields();
     }
     checkXrayPortConflict();
 }
@@ -970,6 +1552,124 @@ function toggleCustomConfig() {
     document.getElementById('customConfigSection').style.display = checked ? 'block' : 'none';
 }
 
+function toggleAcmeByDomain() {
+    const domain = (document.getElementById('domain')?.value || '').trim();
+    const toggleGroup = document.getElementById('acmeAdvancedToggleGroup');
+    if (toggleGroup) toggleGroup.style.display = domain ? '' : 'none';
+
+    if (!domain) {
+        const cb = document.getElementById('acmeAdvancedEnabled');
+        if (cb) cb.checked = false;
+    }
+
+    toggleAcmeAdvancedFields();
+    toggleSniField();
+}
+
+function toggleAcmeAdvancedFields() {
+    const domain = (document.getElementById('domain')?.value || '').trim();
+    const enabled = !!document.getElementById('acmeAdvancedEnabled')?.checked;
+    const wrap = document.getElementById('acmeAdvancedFieldsWrap');
+    if (wrap) wrap.style.display = (domain && enabled) ? '' : 'none';
+    if (domain && enabled) toggleAcmeTypeFields();
+}
+
+function toggleAcmeTypeFields() {
+    const advancedEnabled = !!document.getElementById('acmeAdvancedEnabled')?.checked;
+    const domain = (document.getElementById('domain')?.value || '').trim();
+    const type = document.getElementById('acmeType')?.value || '';
+    const altPorts = document.getElementById('acmeAltPortFields');
+    const httpGroup = document.getElementById('acmeHttpFieldGroup');
+    const tlsGroup = document.getElementById('acmeTlsFieldGroup');
+    const dns = document.getElementById('acmeDnsFields');
+    const active = advancedEnabled && !!domain;
+    if (altPorts) altPorts.style.display = active && (type === 'http' || type === 'tls') ? '' : 'none';
+    if (httpGroup) httpGroup.classList.toggle('is-inactive', !active || type !== 'http');
+    if (tlsGroup) tlsGroup.classList.toggle('is-inactive', !active || type !== 'tls');
+    if (dns) dns.style.display = active && type === 'dns' ? '' : 'none';
+}
+
+function toggleMasqueradeType() {
+    const type = document.getElementById('masqueradeType')?.value || 'proxy';
+    const proxy = document.getElementById('masqueradeProxyFields');
+    const str = document.getElementById('masqueradeStringFields');
+    if (proxy) proxy.style.display = type === 'proxy' ? '' : 'none';
+    if (str) str.style.display = type === 'string' ? '' : 'none';
+    toggleSniField();
+}
+
+function toggleSniField() {
+    const proto = document.querySelector('input[name="type"]:checked')?.value || 'hysteria';
+    const group = document.getElementById('sniGroup');
+    if (!group) return;
+    if (proto === 'xray') {
+        group.style.display = 'none';
+        return;
+    }
+    const hasDomain = !!(document.getElementById('domain')?.value || '').trim();
+    group.style.display = hasDomain ? 'none' : '';
+}
+
+function toggleResolverFields() {
+    const enabled = document.getElementById('resolverEnabled')?.checked;
+    const wrap = document.getElementById('resolverFieldsWrap');
+    if (wrap) wrap.style.display = enabled ? '' : 'none';
+    if (enabled) toggleResolverTypeFields();
+}
+
+function toggleResolverTypeFields() {
+    const type = document.getElementById('resolverType')?.value || 'udp';
+    const ids = ['resolverUdpFields', 'resolverTcpFields', 'resolverTlsFields', 'resolverHttpsFields'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const expected = id.replace('resolver', '').replace('Fields', '').toLowerCase();
+        el.style.display = expected === type ? '' : 'none';
+    });
+}
+
+function toggleAclTypeFields() {
+    const enabled = !!document.getElementById('aclEnabled')?.checked;
+    const type = document.getElementById('aclType')?.value || 'inline';
+    const fileGroup = document.getElementById('aclFileGroup');
+    const typeGroup = document.getElementById('aclTypeGroup');
+    const inlineRulesGroup = document.getElementById('aclInlineRulesGroup');
+    if (fileGroup) fileGroup.style.display = enabled && type === 'file' ? '' : 'none';
+    if (typeGroup) typeGroup.style.gridColumn = (enabled && type === 'file') ? '' : '1 / -1';
+    if (inlineRulesGroup) inlineRulesGroup.style.display = enabled && type === 'inline' ? '' : 'none';
+}
+
+function toggleAclFields() {
+    const enabled = !!document.getElementById('aclEnabled')?.checked;
+    const wrap = document.getElementById('aclFieldsWrap');
+    if (wrap) wrap.style.display = enabled ? '' : 'none';
+    if (enabled) toggleAclTypeFields();
+}
+
+function toggleBandwidthFields() {
+    const enabled = !!document.getElementById('bandwidthEnabled')?.checked;
+    const wrap = document.getElementById('bandwidthFieldsWrap');
+    if (wrap) wrap.style.display = enabled ? '' : 'none';
+}
+
+function toggleUdpFields() {
+    const enabled = !!document.getElementById('udpOptionsEnabled')?.checked;
+    const wrap = document.getElementById('udpFieldsWrap');
+    if (wrap) wrap.style.display = enabled ? '' : 'none';
+}
+
+function toggleSniffFields() {
+    const enabled = !!document.getElementById('sniffEnabled')?.checked;
+    const wrap = document.getElementById('sniffFieldsWrap');
+    if (wrap) wrap.style.display = enabled ? '' : 'none';
+}
+
+function toggleQuicFields() {
+    const enabled = !!document.getElementById('quicEnabled')?.checked;
+    const wrap = document.getElementById('quicFieldsWrap');
+    if (wrap) wrap.style.display = enabled ? '' : 'none';
+}
+
 function generateSecret() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let secret = '';
@@ -984,66 +1684,26 @@ function generateObfsPassword() {
     document.getElementById('obfsPassword').value = pwd;
 }
 
-function generateConfig() {
-    const name = document.getElementById('name').value || 'Node';
-    const domain = document.getElementById('domain').value;
-    const port = document.getElementById('port').value || 443;
-    const statsPort = document.getElementById('statsPort')?.value || 9999;
-    const statsSecret = document.getElementById('statsSecret')?.value || 'secret';
+async function generateConfig() {
+    const form = document.getElementById('nodeForm');
+    const output = document.getElementById('customConfig');
+    if (!form || !output) return;
 
-    let tlsSection;
-    if (domain) {
-        tlsSection = `acme:\n  domains:\n    - ${domain}\n  email: admin@${domain}\n  dir: /etc/hysteria/acme\n  listenHost: 0.0.0.0`;
-    } else {
-        tlsSection = `tls:\n  cert: /etc/hysteria/cert.pem\n  key: /etc/hysteria/key.pem`;
+    const formData = new URLSearchParams(new FormData(form));
+    try {
+        const res = await fetch('/panel/nodes/preview-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: formData.toString(),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Failed to generate preview');
+        }
+        output.value = data.config || '';
+    } catch (err) {
+        alert(i18nConfig.error + ': ' + err.message);
     }
-
-    const config = `# Hysteria 2 Config - ${name}
-# Generated: ${new Date().toISOString()}
-
-listen: :${port}
-
-${tlsSection}
-
-sniff:
-  enable: true
-  timeout: 2s
-  rewriteDomain: false
-  tcpPorts: 80,443,8000-9000
-  udpPorts: 443,80,53
-
-quic:
-  initStreamReceiveWindow: 8388608
-  maxStreamReceiveWindow: 8388608
-  initConnReceiveWindow: 20971520
-  maxConnReceiveWindow: 20971520
-  maxIdleTimeout: 60s
-  maxIncomingStreams: 256
-
-auth:
-  type: http
-  http:
-    url: ${i18nConfig.baseUrl}/api/auth
-    insecure: false
-
-masquerade:
-  type: string
-  string:
-    content: "Service Unavailable"
-    headers:
-      Content-Type: text/plain
-    statusCode: 503
-
-acl:
-  inline:
-    - reject(geoip:cn)
-    - reject(geoip:private)
-
-trafficStats:
-  listen: :${statsPort}
-  secret: ${statsSecret}
-`;
-    document.getElementById('customConfig').value = config;
 }
 
 async function loadCurrentConfig() {
@@ -1066,10 +1726,52 @@ async function loadCurrentConfig() {
     <% } %>
 }
 
-function copyConfig() {
-    const code = document.querySelector('.code-block code').textContent;
-    navigator.clipboard.writeText(code);
-    alert(i18nConfig.copied);
+function fallbackCopyText(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try {
+        ok = document.execCommand('copy');
+    } catch (_) {
+        ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+}
+
+async function copyConfig(btn) {
+    const code = document.querySelector('#nodeConfigCode code')?.textContent || '';
+    if (!code) return;
+
+    let copied = false;
+    if (navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(code);
+            copied = true;
+        } catch (_) {
+            copied = fallbackCopyText(code);
+        }
+    } else {
+        copied = fallbackCopyText(code);
+    }
+
+    if (!btn) return;
+    if (!btn.dataset.orig) {
+        btn.dataset.orig = btn.textContent;
+    }
+
+    if (copied) {
+        btn.textContent = `${i18nConfig.copied} ✓`;
+        btn.classList.add('is-copied');
+        setTimeout(() => {
+            btn.textContent = btn.dataset.orig;
+            btn.classList.remove('is-copied');
+        }, 1500);
+    }
 }
 
 // ==================== Management actions ====================
@@ -1241,6 +1943,16 @@ async function generateXrayKeys() {
 (function() {
     const proto = document.querySelector('input[name="type"]:checked')?.value || 'hysteria';
     switchProto(proto);
+    toggleAcmeByDomain();
+    toggleAcmeTypeFields();
+    toggleObfsPassword();
+    toggleMasqueradeType();
+    toggleBandwidthFields();
+    toggleUdpFields();
+    toggleSniffFields();
+    toggleQuicFields();
+    toggleResolverFields();
+    toggleAclFields();
     if (proto === 'xray') {
         updateXrayTransportUI();
         updateXraySecurityUI();
@@ -1324,6 +2036,13 @@ document.getElementById('generateSshKeyBtn')?.addEventListener('click', async fu
     checkXrayPortConflict();
     const ipInput = document.getElementById('ip');
     if (ipInput) ipInput.addEventListener('input', checkXrayPortConflict);
+})();
+
+// Keep SNI visibility synced with domain state
+(function () {
+    const domain = document.getElementById('domain');
+    if (domain) domain.addEventListener('input', toggleSniField);
+    toggleSniField();
 })();
 
 // ==================== Cascade link actions ====================

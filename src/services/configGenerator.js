@@ -58,25 +58,7 @@ function generateNodeConfig(node, authUrl, options = {}) {
     
     const config = {
         listen: `:${node.port}`,
-        
-        sniff: {
-            enable: true,
-            timeout: '2s',
-            rewriteDomain: false,
-            tcpPorts: '80,443,8000-9000',
-            udpPorts: '443,80,53',
-        },
-        
-        quic: {
-            initStreamReceiveWindow: 8388608,
-            maxStreamReceiveWindow: 8388608,
-            initConnReceiveWindow: 20971520,
-            maxConnReceiveWindow: 20971520,
-            maxIdleTimeout: '60s',
-            maxIncomingStreams: 256,
-            disablePathMTUDiscovery: false,
-        },
-        
+
         auth: {
             type: 'http',
             http: {
@@ -84,33 +66,12 @@ function generateNodeConfig(node, authUrl, options = {}) {
                 insecure: authInsecure,
             },
         },
-        
-        ignoreClientBandwidth: false,
-        
-        masquerade: {
-            type: 'proxy',
-            proxy: {
-                url: 'https://www.google.com',
-                rewriteHost: true,
-            },
-        },
-        
-        acl: {
-            inline: [
-                'reject(geoip:cn)',
-                'reject(geoip:private)',
-            ],
-        },
+        masquerade: buildMasqueradeConfig(node),
     };
     
     if (node.domain && !useTlsFiles) {
         // ACME - SNI must match domain (sniGuard: dns-san by default)
-        config.acme = {
-            domains: [node.domain],
-            email: 'acme@' + node.domain,
-            ca: 'letsencrypt',
-            listenHost: '0.0.0.0',
-        };
+        config.acme = buildAcmeConfig(node);
     } else {
         // TLS with certificate files (self-signed or copied from panel)
         config.tls = {
@@ -130,6 +91,34 @@ function generateNodeConfig(node, authUrl, options = {}) {
         };
     }
 
+    config.sniff = buildSniffConfig(node);
+    config.quic = buildQuicConfig(node);
+
+    if (node.bandwidth?.up || node.bandwidth?.down) {
+        config.bandwidth = {};
+        if (node.bandwidth.up) config.bandwidth.up = node.bandwidth.up;
+        if (node.bandwidth.down) config.bandwidth.down = node.bandwidth.down;
+    }
+
+    config.ignoreClientBandwidth = !!node.ignoreClientBandwidth;
+
+    if (node.speedTest) {
+        config.speedTest = true;
+    }
+
+    if (node.disableUDP) {
+        config.disableUDP = true;
+    }
+
+    if (node.udpIdleTimeout) {
+        config.udpIdleTimeout = node.udpIdleTimeout;
+    }
+
+    const resolverConfig = buildResolverConfig(node);
+    if (resolverConfig) {
+        config.resolver = resolverConfig;
+    }
+
     if (node.statsPort && node.statsSecret) {
         config.trafficStats = {
             listen: `:${node.statsPort}`,
@@ -142,6 +131,141 @@ function generateNodeConfig(node, authUrl, options = {}) {
     return yaml.stringify(config);
 }
 
+function buildAcmeConfig(node) {
+    const acme = node.acme || {};
+    const cfg = {
+        domains: [node.domain],
+        email: acme.email || ('acme@' + node.domain),
+        ca: acme.ca || 'letsencrypt',
+        listenHost: acme.listenHost || '0.0.0.0',
+    };
+
+    const type = (acme.type || '').trim();
+    if (['http', 'tls'].includes(type)) {
+        cfg.type = type;
+    }
+
+    if (type === 'http' && Number(acme.httpAltPort) > 0) {
+        cfg.http = { altPort: Number(acme.httpAltPort) };
+    }
+    if (type === 'tls' && Number(acme.tlsAltPort) > 0) {
+        cfg.tls = { altPort: Number(acme.tlsAltPort) };
+    }
+    if (type === 'dns' && acme.dnsName) {
+        cfg.type = 'dns';
+        cfg.dns = { name: acme.dnsName };
+        if (acme.dnsConfig && typeof acme.dnsConfig === 'object' && Object.keys(acme.dnsConfig).length > 0) {
+            cfg.dns.config = acme.dnsConfig;
+        }
+    }
+
+    return cfg;
+}
+
+function buildMasqueradeConfig(node) {
+    const masq = node.masquerade || {};
+    const type = masq.type === 'string' ? 'string' : 'proxy';
+    const cfg = { type };
+
+    if (type === 'string') {
+        const statusCodeRaw = Number(masq.string?.statusCode) || 503;
+        const statusCode = Math.min(599, Math.max(100, statusCodeRaw));
+        const content = String(masq.string?.content || 'Service Unavailable').replace(/\r\n?/g, '\n');
+        cfg.string = {
+            content,
+            statusCode,
+        };
+        if (masq.string?.headers && typeof masq.string.headers === 'object' && Object.keys(masq.string.headers).length > 0) {
+            cfg.string.headers = masq.string.headers;
+        } else {
+            cfg.string.headers = { 'content-type': 'text/plain' };
+        }
+    } else {
+        cfg.proxy = {
+            url: masq.proxy?.url || 'https://www.google.com',
+            rewriteHost: masq.proxy?.rewriteHost !== false,
+        };
+        if (masq.proxy?.insecure) cfg.proxy.insecure = true;
+    }
+
+    if (masq.listenHTTP) cfg.listenHTTP = masq.listenHTTP;
+    if (masq.listenHTTPS) cfg.listenHTTPS = masq.listenHTTPS;
+    if (masq.forceHTTPS) cfg.forceHTTPS = true;
+
+    return cfg;
+}
+
+function buildSniffConfig(node) {
+    const sniff = node.sniff || {};
+    return {
+        enable: sniff.enable !== false,
+        timeout: sniff.timeout || '2s',
+        rewriteDomain: !!sniff.rewriteDomain,
+        tcpPorts: sniff.tcpPorts || '80,443,8000-9000',
+        udpPorts: sniff.udpPorts || '443,80,53',
+    };
+}
+
+function safePositiveInteger(raw, fallback) {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) return fallback;
+    return value;
+}
+
+function buildQuicConfig(node) {
+    const quic = node.quic || {};
+    const initStreamReceiveWindow = safePositiveInteger(quic.initStreamReceiveWindow, 8388608);
+    const maxStreamReceiveWindow = safePositiveInteger(quic.maxStreamReceiveWindow, 8388608);
+    const initConnReceiveWindow = safePositiveInteger(quic.initConnReceiveWindow, 20971520);
+    const maxConnReceiveWindow = safePositiveInteger(quic.maxConnReceiveWindow, 20971520);
+
+    return {
+        initStreamReceiveWindow,
+        maxStreamReceiveWindow: Math.max(maxStreamReceiveWindow, initStreamReceiveWindow),
+        initConnReceiveWindow,
+        maxConnReceiveWindow: Math.max(maxConnReceiveWindow, initConnReceiveWindow),
+        maxIdleTimeout: quic.maxIdleTimeout || '60s',
+        maxIncomingStreams: safePositiveInteger(quic.maxIncomingStreams, 256),
+        disablePathMTUDiscovery: !!quic.disablePathMTUDiscovery,
+    };
+}
+
+function buildResolverConfig(node) {
+    const resolver = node.resolver || {};
+    if (!resolver.enabled) return null;
+
+    const type = resolver.type || 'udp';
+    const cfg = { type };
+
+    if (type === 'udp') {
+        cfg.udp = {
+            addr: resolver.udpAddr || '8.8.4.4:53',
+            timeout: resolver.udpTimeout || '4s',
+        };
+    } else if (type === 'tcp') {
+        cfg.tcp = {
+            addr: resolver.tcpAddr || '8.8.8.8:53',
+            timeout: resolver.tcpTimeout || '4s',
+        };
+    } else if (type === 'tls') {
+        cfg.tls = {
+            addr: resolver.tlsAddr || '1.1.1.1:853',
+            timeout: resolver.tlsTimeout || '10s',
+            sni: resolver.tlsSni || 'cloudflare-dns.com',
+            insecure: !!resolver.tlsInsecure,
+        };
+    } else if (type === 'https') {
+        cfg.https = {
+            addr: resolver.httpsAddr || '1.1.1.1:443',
+            timeout: resolver.httpsTimeout || '10s',
+            sni: resolver.httpsSni || 'cloudflare-dns.com',
+            insecure: !!resolver.httpsInsecure,
+        };
+    }
+
+    return cfg;
+}
+
 /**
  * Apply outbounds and ACL rules from node settings to config object
  * @param {Object} config - Hysteria config object (mutated in place)
@@ -150,6 +274,8 @@ function generateNodeConfig(node, authUrl, options = {}) {
 function applyOutboundsAndAcl(config, node) {
     const customOutbounds = node.outbounds || [];
     const customAclRules = node.aclRules || [];
+    const aclOptions = node.acl || {};
+    const aclEnabled = aclOptions.enabled !== false;
     
     // In Hysteria 2, valid outbound types are: direct, socks5, http
     // 'block' type is not a real outbound — 'reject' is a built-in ACL action
@@ -179,16 +305,50 @@ function applyOutboundsAndAcl(config, node) {
                     url = urlObj.toString();
                 }
                 entry.http = { url };
+                if (ob.insecure) entry.http.insecure = true;
+            } else if (ob.type === 'direct') {
+                const direct = ob.direct || {};
+                const directCfg = {};
+                if (direct.mode) directCfg.mode = direct.mode;
+                if (direct.bindIPv4) directCfg.bindIPv4 = direct.bindIPv4;
+                if (direct.bindIPv6) directCfg.bindIPv6 = direct.bindIPv6;
+                if (direct.bindDevice) directCfg.bindDevice = direct.bindDevice;
+                if (direct.fastOpen) directCfg.fastOpen = true;
+                if (Object.keys(directCfg).length > 0) {
+                    entry.direct = directCfg;
+                }
             }
             return entry;
         });
     }
     
-    if (customAclRules.length > 0) {
+    if (!aclEnabled) {
+        return;
+    }
+
+    const aclType = aclOptions.type === 'file' ? 'file' : 'inline';
+    let aclConfig;
+
+    if (aclType === 'file' && aclOptions.file) {
+        aclConfig = { file: aclOptions.file };
+    } else if (customAclRules.length > 0) {
         // 'block' is not a valid ACL action in Hysteria 2 — replace with 'reject'
         const normalizedRules = customAclRules.map(r => r.replace(/\bblock\(/g, 'reject('));
-        config.acl = { inline: normalizedRules };
+        aclConfig = { inline: normalizedRules };
+    } else {
+        // Legacy safe defaults when ACL is enabled but no explicit source is provided.
+        aclConfig = {
+            inline: [
+                'reject(geoip:cn)',
+                'reject(geoip:private)',
+            ],
+        };
     }
+
+    if (aclOptions.geoip) aclConfig.geoip = aclOptions.geoip;
+    if (aclOptions.geosite) aclConfig.geosite = aclOptions.geosite;
+    if (aclOptions.geoUpdateInterval) aclConfig.geoUpdateInterval = aclOptions.geoUpdateInterval;
+    config.acl = aclConfig;
 }
 
 /**
@@ -201,77 +361,15 @@ function applyOutboundsAndAcl(config, node) {
  * @param {boolean} options.authInsecure - Allow self-signed certs for auth API (default: true)
  */
 function generateNodeConfigACME(node, authUrl, domain, email, options = {}) {
-    const { authInsecure = true } = options;
-    
-    const config = {
-        listen: `:${node.port}`,
-        
+    const hydrated = {
+        ...node,
+        domain,
         acme: {
-            domains: [domain],
-            email: email,
-        },
-        
-        sniff: {
-            enable: true,
-            timeout: '2s',
-            rewriteDomain: false,
-            tcpPorts: '80,443,8000-9000',
-            udpPorts: '443,80,53',
-        },
-        
-        quic: {
-            initStreamReceiveWindow: 8388608,
-            maxStreamReceiveWindow: 8388608,
-            initConnReceiveWindow: 20971520,
-            maxConnReceiveWindow: 20971520,
-            maxIdleTimeout: '60s',
-            maxIncomingStreams: 256,
-            disablePathMTUDiscovery: false,
-        },
-        
-        auth: {
-            type: 'http',
-            http: {
-                url: authUrl,
-                insecure: authInsecure,
-            },
-        },
-        
-        ignoreClientBandwidth: false,
-        
-        masquerade: {
-            type: 'proxy',
-            proxy: {
-                url: 'https://www.google.com',
-                rewriteHost: true,
-            },
-        },
-        
-        acl: {
-            inline: [
-                'reject(geoip:cn)',
-                'reject(geoip:private)',
-            ],
+            ...(node.acme || {}),
+            email: email || node.acme?.email,
         },
     };
-    
-    if (node.obfs?.password) {
-        config.obfs = {
-            type: 'salamander',
-            salamander: { password: node.obfs.password },
-        };
-    }
-
-    if (node.statsPort && node.statsSecret) {
-        config.trafficStats = {
-            listen: `:${node.statsPort}`,
-            secret: node.statsSecret,
-        };
-    }
-    
-    applyOutboundsAndAcl(config, node);
-    
-    return yaml.stringify(config);
+    return generateNodeConfig(hydrated, authUrl, { ...options, useTlsFiles: false });
 }
 
 /**

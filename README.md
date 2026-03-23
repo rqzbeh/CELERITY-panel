@@ -79,6 +79,7 @@ MONGO_PASSWORD=yourmongopassword   # openssl rand -hex 16
 - 👥 **Server Groups** — Flexible user-to-node mapping
 - ⚖️ **Load Balancing** — Distribute users by server load
 - 🚫 **Traffic Filtering (ACL)** — Block ads, domains, IPs; route through custom proxies
+- 🧩 **Advanced Hysteria Config** — optional ACME challenge options, masquerade modes, resolver, speed test, sniffing, and QUIC tuning
 - 📊 **Statistics** — Online users, traffic, server status
 - 📱 **Subscriptions** — Auto-format for Clash, Sing-box, Shadowrocket, Hiddify
 - 🔄 **Backup/Restore** — Automatic backups with S3 support
@@ -235,6 +236,17 @@ Fast UDP protocol based on QUIC with port hopping and obfuscation support.
 - Port, port range for hopping
 - ACME or self-signed certificates
 - Obfs (Salamander) with password
+
+**Advanced Hysteria settings in panel:**
+- Port Hopping interval (`hopInterval`)
+- ACME advanced options (challenge type, alt ports, DNS challenge provider and config)
+- Masquerade modes: `proxy` and `string`
+- Bandwidth limits (`up` / `down`) and `ignoreClientBandwidth`
+- Built-in `speedTest`, `disableUDP`, `udpIdleTimeout`
+- Protocol sniffing (`sniff`) and QUIC parameters (`quic`)
+- Custom DNS resolver (`resolver`)
+- ACL source mode (`inline` or `file`) + GeoIP/GeoSite paths
+- Advanced sections are optional and omitted from generated config until enabled in UI
 
 ### Xray VLESS
 

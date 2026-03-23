@@ -80,6 +80,7 @@ MONGO_PASSWORD=парольмонго         # openssl rand -hex 16
 - 👥 **Группы серверов** — гибкая привязка пользователей к нодам
 - ⚖️ **Балансировка нагрузки** — распределение по загруженности
 - 🚫 **Фильтрация трафика (ACL)** — блокировка рекламы, доменов, IP; маршрутизация через прокси
+- 🧩 **Расширенный конфиг Hysteria** — опциональные параметры ACME challenge, режимы masquerade, resolver, speed test, sniffing и настройка QUIC
 - 📊 **Статистика** — онлайн, трафик, состояние серверов
 - 📱 **Подписки** — автоформаты для Clash, Sing-box, Shadowrocket, Hiddify
 - 🔄 **Бэкап/Восстановление** — автоматические бэкапы с поддержкой S3
@@ -242,6 +243,18 @@ Tunnel-REALITY настраивается **независимо** от клие
 - Порт, диапазон портов для hopping
 - ACME или self-signed сертификаты
 - Obfs (Salamander) с паролем
+
+**Расширенные настройки Hysteria в панели:**
+
+- Интервал Port Hopping (`hopInterval`)
+- Расширенный ACME (тип challenge, альтернативные порты, DNS challenge provider/config)
+- Режимы masquerade: `proxy` и `string`
+- Лимиты bandwidth (`up` / `down`) и `ignoreClientBandwidth`
+- Встроенные `speedTest`, `disableUDP`, `udpIdleTimeout`
+- Protocol sniffing (`sniff`) и параметры QUIC (`quic`)
+- Кастомный DNS resolver (`resolver`)
+- Режим источника ACL (`inline` или `file`) + пути к GeoIP/GeoSite
+- Расширенные секции опциональны и не попадают в сгенерированный конфиг, пока не включены в UI
 
 ### Xray VLESS
 

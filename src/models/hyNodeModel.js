@@ -17,6 +17,95 @@ const outboundSchema = new mongoose.Schema({
     addr: { type: String, default: '' },
     username: { type: String, default: '' },
     password: { type: String, default: '' },
+    insecure: { type: Boolean, default: false },
+    direct: {
+        mode: { type: String, default: '' },
+        bindIPv4: { type: String, default: '' },
+        bindIPv6: { type: String, default: '' },
+        bindDevice: { type: String, default: '' },
+        fastOpen: { type: Boolean, default: false },
+    },
+}, { _id: false });
+
+const acmeOptionsSchema = new mongoose.Schema({
+    email: { type: String, default: '' },
+    ca: { type: String, default: 'letsencrypt' },
+    listenHost: { type: String, default: '0.0.0.0' },
+    type: { type: String, enum: ['', 'http', 'tls', 'dns'], default: '' },
+    httpAltPort: { type: Number, default: 0 },
+    tlsAltPort: { type: Number, default: 0 },
+    disableHTTPChallenge: { type: Boolean, default: false },
+    disableTLSALPNChallenge: { type: Boolean, default: false },
+    dnsName: { type: String, default: '' },
+    dnsConfig: { type: Object, default: {} },
+}, { _id: false });
+
+const masqueradeSchema = new mongoose.Schema({
+    type: { type: String, enum: ['proxy', 'string'], default: 'proxy' },
+    proxy: {
+        url: { type: String, default: 'https://www.google.com' },
+        rewriteHost: { type: Boolean, default: true },
+        insecure: { type: Boolean, default: false },
+    },
+    string: {
+        content: { type: String, default: 'Service Unavailable' },
+        headers: { type: Object, default: { 'content-type': 'text/plain' } },
+        statusCode: { type: Number, default: 503 },
+    },
+    listenHTTP: { type: String, default: '' },
+    listenHTTPS: { type: String, default: '' },
+    forceHTTPS: { type: Boolean, default: false },
+}, { _id: false });
+
+const bandwidthSchema = new mongoose.Schema({
+    up: { type: String, default: '' },
+    down: { type: String, default: '' },
+}, { _id: false });
+
+const resolverSchema = new mongoose.Schema({
+    enabled: { type: Boolean, default: false },
+    type: { type: String, enum: ['udp', 'tcp', 'tls', 'https'], default: 'udp' },
+    udpAddr: { type: String, default: '8.8.4.4:53' },
+    udpTimeout: { type: String, default: '4s' },
+    tcpAddr: { type: String, default: '8.8.8.8:53' },
+    tcpTimeout: { type: String, default: '4s' },
+    tlsAddr: { type: String, default: '1.1.1.1:853' },
+    tlsTimeout: { type: String, default: '10s' },
+    tlsSni: { type: String, default: 'cloudflare-dns.com' },
+    tlsInsecure: { type: Boolean, default: false },
+    httpsAddr: { type: String, default: '1.1.1.1:443' },
+    httpsTimeout: { type: String, default: '10s' },
+    httpsSni: { type: String, default: 'cloudflare-dns.com' },
+    httpsInsecure: { type: Boolean, default: false },
+}, { _id: false });
+
+const aclSettingsSchema = new mongoose.Schema({
+    enabled: { type: Boolean, default: true },
+    type: { type: String, enum: ['inline', 'file'], default: 'inline' },
+    file: { type: String, default: '' },
+    geoip: { type: String, default: '' },
+    geosite: { type: String, default: '' },
+    geoUpdateInterval: { type: String, default: '' },
+}, { _id: false });
+
+const sniffSchema = new mongoose.Schema({
+    enabled: { type: Boolean, default: false },
+    enable: { type: Boolean, default: true },
+    timeout: { type: String, default: '2s' },
+    rewriteDomain: { type: Boolean, default: false },
+    tcpPorts: { type: String, default: '80,443,8000-9000' },
+    udpPorts: { type: String, default: '443,80,53' },
+}, { _id: false });
+
+const quicSchema = new mongoose.Schema({
+    enabled: { type: Boolean, default: false },
+    initStreamReceiveWindow: { type: Number, default: 8388608 },
+    maxStreamReceiveWindow: { type: Number, default: 8388608 },
+    initConnReceiveWindow: { type: Number, default: 20971520 },
+    maxConnReceiveWindow: { type: Number, default: 20971520 },
+    maxIdleTimeout: { type: String, default: '60s' },
+    maxIncomingStreams: { type: Number, default: 256 },
+    disablePathMTUDiscovery: { type: Boolean, default: false },
 }, { _id: false });
 
 const xrayConfigSchema = new mongoose.Schema({
@@ -75,11 +164,23 @@ const hyNodeSchema = new mongoose.Schema({
     sni: { type: String, default: '' },
     port: { type: Number, default: 443 },
     portRange: { type: String, default: '20000-50000' },
+    hopInterval: { type: String, default: '' },
     portConfigs: { type: [portConfigSchema], default: [] },
     obfs: {
         type: { type: String, enum: ['', 'salamander'], default: '' },
         password: { type: String, default: '' },
     },
+    acme: { type: acmeOptionsSchema, default: () => ({}) },
+    masquerade: { type: masqueradeSchema, default: () => ({}) },
+    bandwidth: { type: bandwidthSchema, default: () => ({}) },
+    ignoreClientBandwidth: { type: Boolean, default: false },
+    speedTest: { type: Boolean, default: false },
+    disableUDP: { type: Boolean, default: false },
+    udpIdleTimeout: { type: String, default: '' },
+    sniff: { type: sniffSchema, default: () => ({}) },
+    quic: { type: quicSchema, default: () => ({}) },
+    resolver: { type: resolverSchema, default: () => ({}) },
+    acl: { type: aclSettingsSchema, default: () => ({}) },
     statsPort: { type: Number, default: 9999 },
     statsSecret: { type: String, default: '' },
 
@@ -165,4 +266,3 @@ hyNodeSchema.methods.getSubscriptionAddress = function() {
 };
 
 module.exports = mongoose.model('HyNode', hyNodeSchema);
-
