@@ -1,12 +1,12 @@
 # 🤖 MCP Integration User Guide
 
-> Connect AI assistants directly to your C³ CELERITY panel for automated management.
+> Connect AI assistants directly to your CELERITY panel for automated management.
 
 ---
 
 ## 📖 What is MCP?
 
-**Model Context Protocol (MCP)** is a protocol that allows AI assistants (Claude, Cursor, etc.) to directly interact with the C³ CELERITY panel.
+**Model Context Protocol (MCP)** is a protocol that allows AI assistants (Claude, Cursor, etc.) to directly interact with the CELERITY panel.
 
 ### ✨ Capabilities
 

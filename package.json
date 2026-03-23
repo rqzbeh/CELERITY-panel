@@ -1,7 +1,7 @@
 {
   "name": "c3-celerity",
   "version": "1.0.0",
-  "description": "C³ CELERITY - Management panel for Hysteria 2 nodes by Click Connect",
+  "description": "CELERITY - Management panel for Hysteria 2 nodes by Click Connect",
   "keywords": [
     "nodejs",
     "docker",

@@ -1,4 +1,4 @@
-# C³ CELERITY
+# CELERITY
 
 ⚡ **Fast. Simple. Long-lasting.**
 
@@ -11,12 +11,12 @@
 [![Hysteria](https://img.shields.io/badge/Hysteria-2.x-9B59B6)](https://v2.hysteria.network/)
 [![Xray](https://img.shields.io/badge/Xray-VLESS-00ADD8)](https://xtls.github.io/)
 
-**C³ CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/) and [Xray VLESS](https://xtls.github.io/) proxy servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
+**CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/) and [Xray VLESS](https://xtls.github.io/) proxy servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
 
 **Built for performance:** Lightweight architecture designed for speed at any scale.
 
 <p align="center">
-  <img src="docs/dashboard.png" alt="C³ CELERITY Dashboard" width="800">
+  <img src="docs/dashboard.png" alt="CELERITY Dashboard" width="800">
   <br>
   <em>Dashboard — real-time server monitoring and statistics</em>
 </p>

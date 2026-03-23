@@ -1,4 +1,4 @@
-# C³ CELERITY - Quick Start (Docker Hub)
+# CELERITY - Quick Start (Docker Hub)
 # Use this file for quick deployment without building from source
 # Run: docker compose -f docker-compose.hub.yml up -d
 

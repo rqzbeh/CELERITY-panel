@@ -1,6 +1,6 @@
 # Safe Production Updates
 
-Step-by-step guide for updating C³ CELERITY on production servers with minimal downtime.
+Step-by-step guide for updating CELERITY on production servers with minimal downtime.
 
 ---
 

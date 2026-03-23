@@ -1,4 +1,4 @@
-# C³ CELERITY
+# CELERITY
 
 ⚡ **Быстро, просто и надолго**
 
@@ -11,7 +11,7 @@
 [Hysteria](https://v2.hysteria.network/)
 [Xray](https://xtls.github.io/)
 
-**C³ CELERITY** by Click Connect — современная веб-панель для управления серверами [Hysteria 2](https://v2.hysteria.network/) и [Xray VLESS](https://xtls.github.io/) с централизованной авторизацией, автоматической настройкой нод и гибким распределением пользователей по группам.
+**CELERITY** by Click Connect — современная веб-панель для управления серверами [Hysteria 2](https://v2.hysteria.network/) и [Xray VLESS](https://xtls.github.io/) с централизованной авторизацией, автоматической настройкой нод и гибким распределением пользователей по группам.
 
 **Создана для скорости:** Лёгкая архитектура, оптимизированная для быстрой работы на любом масштабе.
 
