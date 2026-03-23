@@ -1,0 +1,465 @@
+const express = require('express');
+const router = express.Router();
+const HyUser = require('../../models/hyUserModel');
+const HyNode = require('../../models/hyNodeModel');
+const ServerGroup = require('../../models/serverGroupModel');
+const cryptoService = require('../../services/cryptoService');
+const syncService = require('../../services/syncService');
+const cache = require('../../services/cacheService');
+const webhookService = require('../../services/webhookService');
+const { render } = require('./helpers');
+const { getActiveGroups, invalidateGroupsCache } = require('../../utils/helpers');
+const logger = require('../../utils/logger');
+
+// ==================== USERS ====================
+
+// GET /users - User list (with search and sorting)
+router.get('/users', async (req, res) => {
+    try {
+        const { enabled, group, page = 1, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+        const limit = 50;
+        
+        const filter = {};
+        if (enabled !== undefined) filter.enabled = enabled === 'true';
+        if (group) filter.groups = group;
+        
+        if (search && search.trim()) {
+            const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const searchRegex = new RegExp(escaped, 'i');
+            filter.$or = [
+                { userId: searchRegex },
+                { username: searchRegex }
+            ];
+        }
+        
+        let users;
+        const order = sortOrder === 'asc' ? 1 : -1;
+        
+        if (sortBy === 'traffic') {
+            const pipeline = [
+                { $match: filter },
+                {
+                    $addFields: {
+                        totalTraffic: { $add: [{ $ifNull: ['$traffic.tx', 0] }, { $ifNull: ['$traffic.rx', 0] }] }
+                    }
+                },
+                { $sort: { totalTraffic: order } },
+                { $skip: (page - 1) * limit },
+                { $limit: limit }
+            ];
+            
+            const usersAggregated = await HyUser.aggregate(pipeline);
+            users = await HyUser.populate(usersAggregated, [
+                { path: 'groups', select: 'name color' }
+            ]);
+        } else {
+            let sortField = {};
+            switch (sortBy) {
+                case 'userId':
+                    sortField = { userId: order };
+                    break;
+                case 'username':
+                    sortField = { username: order };
+                    break;
+                case 'enabled':
+                    sortField = { enabled: order };
+                    break;
+                case 'createdAt':
+                default:
+                    sortField = { createdAt: order };
+                    break;
+            }
+            
+            users = await HyUser.find(filter)
+                .sort(sortField)
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .populate('groups', 'name color')
+                .lean();
+        }
+        
+        const [total, groups] = await Promise.all([
+            HyUser.countDocuments(filter),
+            getActiveGroups(),
+        ]);
+        
+        render(res, 'users', {
+            title: res.locals.locales.users.title,
+            page: 'users',
+            users,
+            groups,
+            pagination: {
+                page: parseInt(page),
+                limit,
+                total,
+                pages: Math.ceil(total / limit),
+            },
+            query: req.query,
+        });
+    } catch (error) {
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// GET /users/add - Create user form
+router.get('/users/add', async (req, res) => {
+    const groups = await getActiveGroups();
+    render(res, 'user-form', {
+        title: res.locals.locales.users.newUser,
+        page: 'users',
+        groups,
+        isEdit: false,
+        user: null,
+        error: null,
+    });
+});
+
+// GET /users/:userId/edit - Edit user form
+router.get('/users/:userId/edit', async (req, res) => {
+    try {
+        const [user, groups] = await Promise.all([
+            HyUser.findOne({ userId: req.params.userId }).populate('groups', 'name color'),
+            getActiveGroups(),
+        ]);
+
+        if (!user) {
+            return res.redirect('/panel/users');
+        }
+
+        render(res, 'user-form', {
+            title: `Редактирование ${user.userId}`,
+            page: 'users',
+            groups,
+            user,
+            isEdit: true,
+            error: null,
+        });
+    } catch (error) {
+        res.status(500).send(`${res.locals.t?.('common.error') || 'Error'}: ${error.message}`);
+    }
+});
+
+// POST /users - Create user
+router.post('/users', async (req, res) => {
+    try {
+        const { userId, username, trafficLimitGB, expireDays, expireAt: expireAtRaw, enabled, maxDevices } = req.body;
+        
+        if (!userId) {
+            return res.status(400).send('userId обязателен');
+        }
+        
+        const existing = await HyUser.findOne({ userId });
+        if (existing) {
+            return res.status(409).send('Пользователь уже существует');
+        }
+        
+        const password = cryptoService.generatePassword(userId);
+        
+        let groups = [];
+        if (req.body.groups) {
+            groups = Array.isArray(req.body.groups) ? req.body.groups : [req.body.groups];
+        }
+        
+        let expireAt = null;
+        const hasExpireAt = typeof expireAtRaw === 'string' && expireAtRaw.trim() !== '';
+
+        if (hasExpireAt) {
+            const parsedExpireAt = new Date(expireAtRaw);
+
+            if (Number.isNaN(parsedExpireAt.getTime())) {
+                return res.status(400).send('Некорректный формат даты/времени окончания');
+            }
+
+            if (parsedExpireAt.getTime() < Date.now()) {
+                return res.status(400).send('Дата/время окончания не может быть в прошлом');
+            }
+
+            expireAt = parsedExpireAt;
+        } else if (expireDays && parseInt(expireDays) > 0) {
+            expireAt = new Date();
+            expireAt.setDate(expireAt.getDate() + parseInt(expireDays));
+        }
+        
+        const trafficLimit = (parseInt(trafficLimitGB, 10) || 0) * 1024 * 1024 * 1024;
+        
+        const userMaxDevices = parseInt(maxDevices) || 0;
+        
+        const newUser = await HyUser.create({
+            userId,
+            username: username || '',
+            password,
+            groups,
+            enabled: enabled === 'on',
+            trafficLimit,
+            maxDevices: userMaxDevices,
+            expireAt,
+            nodes: [],
+        });
+
+        if (newUser.enabled) {
+            syncService.addUserToAllXrayNodes(newUser.toObject()).catch(err => {
+                logger.error(`[Panel] Xray addUser error for ${userId}: ${err.message}`);
+            });
+        }
+        
+        res.redirect(`/panel/users/${userId}`);
+    } catch (error) {
+        res.status(500).send(`${res.locals.t?.('common.error') || 'Error'}: ${error.message}`);
+    }
+});
+
+// POST /users/:userId - Update user
+router.post('/users/:userId', async (req, res) => {
+    try {
+        const { username, trafficLimitGB, expireDays, expireAt: expireAtRaw, enabled, maxDevices } = req.body;
+        const [user, availableGroups] = await Promise.all([
+            HyUser.findOne({ userId: req.params.userId }),
+            getActiveGroups(),
+        ]);
+
+        if (!user) {
+            return res.redirect('/panel/users');
+        }
+
+        let groups = [];
+        if (req.body.groups) {
+            groups = Array.isArray(req.body.groups) ? req.body.groups : [req.body.groups];
+        }
+
+        const trafficLimit = (parseInt(trafficLimitGB, 10) || 0) * 1024 * 1024 * 1024;
+        const userMaxDevices = parseInt(maxDevices, 10) || 0;
+        const draftUser = {
+            ...user.toObject(),
+            username: username || '',
+            groups,
+            enabled: enabled === 'on',
+            trafficLimit,
+            maxDevices: userMaxDevices,
+            expireAt: expireAtRaw,
+        };
+
+        let expireAt = null;
+        const hasExpireAt = typeof expireAtRaw === 'string' && expireAtRaw.trim() !== '';
+
+        if (hasExpireAt) {
+            const parsedExpireAt = new Date(expireAtRaw);
+
+            if (Number.isNaN(parsedExpireAt.getTime())) {
+                draftUser.expireAt = null;
+                return render(res, 'user-form', {
+                    title: res.locals.t('users.editUser') + ' ' + req.params.userId,
+                    page: 'users',
+                    groups: availableGroups,
+                    user: draftUser,
+                    isEdit: true,
+                    error: res.locals.t('users.expireAtInvalidError'),
+                });
+            }
+
+            expireAt = parsedExpireAt;
+            draftUser.expireAt = parsedExpireAt;
+        } else if (expireDays && parseInt(expireDays, 10) > 0) {
+            expireAt = new Date();
+            expireAt.setDate(expireAt.getDate() + parseInt(expireDays, 10));
+            draftUser.expireAt = expireAt;
+        } else {
+            draftUser.expireAt = null;
+        }
+
+        const updates = {
+            enabled: enabled === 'on',
+            username: username || '',
+            groups,
+            trafficLimit,
+            expireAt,
+            maxDevices: userMaxDevices,
+        };
+
+        const wasEnabled = user.enabled;
+        const nowEnabled = updates.enabled;
+
+        await HyUser.findOneAndUpdate({ userId: req.params.userId }, { $set: updates });
+
+        await cache.invalidateUser(req.params.userId);
+        if (user.subscriptionToken) {
+            await cache.invalidateSubscription(user.subscriptionToken);
+        }
+        await cache.clearDeviceIPs(req.params.userId);
+        await cache.invalidateDashboardCounts();
+
+        if (wasEnabled !== nowEnabled) {
+            const updatedUser = { ...user.toObject(), ...updates };
+            if (nowEnabled) {
+                syncService.addUserToAllXrayNodes(updatedUser).catch(err => {
+                    logger.error(`[Panel] Xray addUser error for ${req.params.userId}: ${err.message}`);
+                });
+            } else {
+                syncService.removeUserFromAllXrayNodes(updatedUser).catch(err => {
+                    logger.error(`[Panel] Xray removeUser error for ${req.params.userId}: ${err.message}`);
+                });
+            }
+        }
+
+        webhookService.emit(webhookService.EVENTS.USER_UPDATED, { userId: req.params.userId, updates });
+
+        res.redirect(`/panel/users/${req.params.userId}`);
+    } catch (error) {
+        res.status(500).send(`${res.locals.t?.('common.error') || 'Error'}: ${error.message}`);
+    }
+});
+
+// GET /users/:userId - User details
+router.get('/users/:userId', async (req, res) => {
+    try {
+        const [user, allGroups] = await Promise.all([
+            HyUser.findOne({ userId: req.params.userId })
+                .populate('nodes', 'name ip domain active groups')
+                .populate('groups', 'name color'),
+            getActiveGroups(),
+        ]);
+        
+        if (!user) {
+            return res.redirect('/panel/users');
+        }
+        
+        let effectiveNodes = [];
+        const directNodes = (user.nodes || []).filter(n => n && n.active);
+        if (directNodes.length > 0) {
+            effectiveNodes = directNodes;
+        } else if (user.groups && user.groups.length > 0) {
+            const userGroupIds = user.groups.map(g => g._id?.toString() || g.toString());
+            const allNodes = await HyNode.find({ active: true }).select('name ip domain groups').lean();
+            effectiveNodes = allNodes.filter(n =>
+                (n.groups || []).some(g => userGroupIds.includes(g.toString()))
+            );
+        }
+        
+        render(res, 'user-detail', {
+            title: `Пользователь ${user.userId}`,
+            page: 'users',
+            user,
+            allGroups,
+            effectiveNodes,
+        });
+    } catch (error) {
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// ==================== GROUPS ====================
+
+// GET /groups - Group list
+router.get('/groups', async (req, res) => {
+    try {
+        const groups = await ServerGroup.find().sort({ name: 1 });
+
+        const groupIds = groups.map((group) => group._id);
+        let nodeCountMap = new Map();
+        let userCountMap = new Map();
+
+        if (groupIds.length > 0) {
+            const [nodeCounts, userCounts] = await Promise.all([
+                HyNode.aggregate([
+                    { $match: { groups: { $in: groupIds } } },
+                    { $unwind: '$groups' },
+                    { $match: { groups: { $in: groupIds } } },
+                    { $group: { _id: '$groups', count: { $sum: 1 } } },
+                ]),
+                HyUser.aggregate([
+                    { $match: { groups: { $in: groupIds } } },
+                    { $unwind: '$groups' },
+                    { $match: { groups: { $in: groupIds } } },
+                    { $group: { _id: '$groups', count: { $sum: 1 } } },
+                ]),
+            ]);
+
+            nodeCountMap = new Map(nodeCounts.map((item) => [String(item._id), item.count]));
+            userCountMap = new Map(userCounts.map((item) => [String(item._id), item.count]));
+        }
+
+        const groupsWithCounts = groups.map((group) => ({
+            ...group.toObject(),
+            nodesCount: nodeCountMap.get(String(group._id)) || 0,
+            usersCount: userCountMap.get(String(group._id)) || 0,
+        }));
+        
+        render(res, 'groups', {
+            title: res.locals.locales.groups.title,
+            page: 'groups',
+            groups: groupsWithCounts,
+        });
+    } catch (error) {
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// POST /groups - Create group
+router.post('/groups', async (req, res) => {
+    try {
+        const { name, description, color, maxDevices, subscriptionTitle } = req.body;
+        
+        if (!name || !name.trim()) {
+            return res.status(400).send('Название обязательно');
+        }
+        
+        await ServerGroup.create({
+            name: name.trim(),
+            description: description || '',
+            color: color || '#6366f1',
+            maxDevices: parseInt(maxDevices) || 0,
+            subscriptionTitle: subscriptionTitle?.trim() || '',
+        });
+        
+        await invalidateGroupsCache();
+        
+        res.redirect('/panel/groups');
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).send('Группа с таким названием уже существует');
+        }
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// POST /groups/:id - Update group
+router.post('/groups/:id', async (req, res) => {
+    try {
+        const { name, description, color, active, maxDevices, subscriptionTitle } = req.body;
+        
+        await ServerGroup.findByIdAndUpdate(req.params.id, {
+            $set: {
+                name: name?.trim() || '',
+                description: description || '',
+                color: color || '#6366f1',
+                active: active === 'on',
+                maxDevices: parseInt(maxDevices) || 0,
+                subscriptionTitle: subscriptionTitle?.trim() || '',
+            }
+        });
+        
+        await invalidateGroupsCache();
+        
+        res.redirect('/panel/groups');
+    } catch (error) {
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// POST /groups/:id/delete - Delete group
+router.post('/groups/:id/delete', async (req, res) => {
+    try {
+        await Promise.all([
+            HyNode.updateMany({ groups: req.params.id }, { $pull: { groups: req.params.id } }),
+            HyUser.updateMany({ groups: req.params.id }, { $pull: { groups: req.params.id } }),
+            ServerGroup.findByIdAndDelete(req.params.id),
+        ]);
+        
+        await invalidateGroupsCache();
+        
+        res.redirect('/panel/groups');
+    } catch (error) {
+        res.status(500).send('Error: ' + error.message);
+    }
+});
+
+module.exports = router;

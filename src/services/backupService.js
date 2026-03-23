@@ -9,8 +9,20 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const config = require('../../config');
 const logger = require('../utils/logger');
+const cryptoService = require('./cryptoService');
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Extract database name from MONGO_URI, fallback to 'hysteria'.
+ */
+function getDbName() {
+    try {
+        return new URL(config.MONGO_URI).pathname.replace(/^\//, '') || 'hysteria';
+    } catch (_) {
+        return 'hysteria';
+    }
+}
 
 // Lazy-load S3 client (only when needed)
 let s3Client = null;
@@ -24,7 +36,7 @@ function getS3Client(settings) {
                 endpoint: settings.backup.s3.endpoint || undefined,
                 credentials: {
                     accessKeyId: settings.backup.s3.accessKeyId,
-                    secretAccessKey: settings.backup.s3.secretAccessKey,
+                    secretAccessKey: cryptoService.decryptSafe(settings.backup.s3.secretAccessKey),
                 },
                 forcePathStyle: !!settings.backup.s3.endpoint, // for MinIO and similar
             });
@@ -372,7 +384,10 @@ async function downloadFromS3(settings, key) {
     const { Readable } = require('stream');
     
     const bucket = settings.backup.s3.bucket;
-    const fileName = key.split('/').pop();
+    const fileName = path.basename(key);
+    if (!fileName || fileName === '.' || fileName === '..') {
+        throw new Error('Invalid S3 key');
+    }
     const localPath = path.join(__dirname, '../../backups', fileName);
     
     logger.info(`[Backup] Downloading from S3: ${key}`);
@@ -407,7 +422,11 @@ async function restoreBackup(settings, source, identifier) {
         archivePath = await downloadFromS3(settings, identifier);
         tempDownload = true;
     } else {
-        archivePath = path.join(__dirname, '../../backups', identifier);
+        const safeName = path.basename(identifier);
+        if (!safeName || safeName === '.' || safeName === '..') {
+            throw new Error('Invalid backup identifier');
+        }
+        archivePath = path.join(__dirname, '../../backups', safeName);
         try {
             await fs.access(archivePath);
         } catch {
@@ -423,11 +442,13 @@ async function restoreBackup(settings, source, identifier) {
         await execFileAsync('tar', ['-xzf', archivePath, '-C', extractDir]);
         logger.info(`[Restore] Archive extracted to ${extractDir}`);
 
+        const dbName = getDbName();
+
         const findDumpPath = async (dir) => {
             const items = await fs.readdir(dir);
-            const hysteriaPath = path.join(dir, 'hysteria');
+            const dbPath = path.join(dir, dbName);
             try {
-                const stat = await fs.stat(hysteriaPath);
+                const stat = await fs.stat(dbPath);
                 if (stat.isDirectory()) return dir;
             } catch {}
             if (items.length === 1) {
@@ -439,18 +460,18 @@ async function restoreBackup(settings, source, identifier) {
         };
 
         const dumpPath = await findDumpPath(extractDir);
-        const hysteriaDir = path.join(dumpPath, 'hysteria');
+        const dbDir = path.join(dumpPath, dbName);
 
         try {
-            await fs.access(hysteriaDir);
+            await fs.access(dbDir);
         } catch {
-            throw new Error('Invalid backup: hysteria database folder not found');
+            throw new Error(`Invalid backup: ${dbName} database folder not found`);
         }
 
         const mongoUri = config.MONGO_URI;
 
         logger.info(`[Restore] Starting restore from ${source}: ${identifier}`);
-        await execFileAsync('mongorestore', ['--uri', mongoUri, '--drop', '--gzip', '--db', 'hysteria', hysteriaDir]);
+        await execFileAsync('mongorestore', ['--uri', mongoUri, '--drop', '--gzip', '--db', dbName, dbDir]);
         logger.info(`[Restore] Database restored successfully`);
 
         await fs.rm(extractDir, { recursive: true });
@@ -476,5 +497,6 @@ module.exports = {
     scheduledBackup,
     testS3Connection,
     rotateBackups,
+    resetS3Client() { s3Client = null; },
 };
 

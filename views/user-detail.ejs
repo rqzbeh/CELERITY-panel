@@ -79,10 +79,10 @@
                     </div>
                 </div>
                 
-                <h3 class="section-title"><%= t('users.availableNodes') %> (<%= user.nodes?.length || 0 %>)</h3>
+                <h3 class="section-title"><%= t('users.availableNodes') %> (<%= effectiveNodes?.length || 0 %>)</h3>
                 <div class="nodes-list">
-                    <% if (user.nodes && user.nodes.length > 0) { %>
-                        <% user.nodes.forEach(node => { %>
+                    <% if (effectiveNodes && effectiveNodes.length > 0) { %>
+                        <% effectiveNodes.forEach(node => { %>
                         <div class="node-badge">
                             <span class="node-name"><%= node.name %></span>
                             <span class="node-ip"><%= node.ip %></span>

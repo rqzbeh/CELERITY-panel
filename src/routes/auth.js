@@ -114,9 +114,10 @@ router.post('/', async (req, res) => {
         
         // Parse auth string: can be "userId:password" or just "userId"
         let userId, password;
-        
-        if (auth.includes(':')) {
-            [userId, password] = auth.split(':');
+        const colonIdx = auth.indexOf(':');
+        if (colonIdx !== -1) {
+            userId = auth.substring(0, colonIdx);
+            password = auth.substring(colonIdx + 1);
         } else {
             userId = auth;
             password = null;

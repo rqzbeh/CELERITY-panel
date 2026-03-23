@@ -164,14 +164,6 @@ const sshSessionSchema = z.object({
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function decryptKey(key) {
-    try {
-        const dec = cryptoService.decrypt(key);
-        if (dec && dec.includes('-----BEGIN')) return dec;
-    } catch (_) {}
-    return key;
-}
-
 function buildSshConfig(node) {
     const cfg = {
         host: node.ip,
@@ -180,9 +172,9 @@ function buildSshConfig(node) {
         readyTimeout: 30000,
     };
     if (node.ssh?.privateKey) {
-        cfg.privateKey = decryptKey(node.ssh.privateKey);
+        cfg.privateKey = cryptoService.decryptPrivateKey(node.ssh.privateKey);
     } else if (node.ssh?.password) {
-        cfg.password = cryptoService.decrypt(node.ssh.password);
+        cfg.password = cryptoService.decryptSafe(node.ssh.password);
     } else {
         throw new Error('SSH credentials not configured for this node');
     }
@@ -247,7 +239,7 @@ async function manageNode(args, emit) {
                 statsPort: 9999,
                 statsSecret,
                 groups: data.groups || [],
-                ssh: data.ssh || {},
+                ssh: cryptoService.encryptSshCredentials(data.ssh || {}),
                 active: true,
                 status: 'offline',
                 cascadeRole: data.cascadeRole || 'standalone',
@@ -302,6 +294,9 @@ async function manageNode(args, emit) {
             if (!id) throw new Error('id is required for sync');
             const node = await HyNode.findByIdAndUpdate(id, { $set: { status: 'syncing' } }, { new: true });
             if (!node) return { error: `Node '${id}' not found`, code: 404 };
+            getSyncService().updateNodeConfig(node).catch(err => {
+                logger.error(`[MCP] Sync error for ${node.name}: ${err.message}`);
+            });
             emit('progress', { message: `Sync started for node '${node.name}'` });
             logger.info(`[MCP] Started sync for node ${node.name}`);
             return { success: true, message: `Sync started for '${node.name}'` };

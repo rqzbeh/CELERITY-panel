@@ -14,20 +14,6 @@ const { Client } = require('ssh2');
 const logger = require('../utils/logger');
 const cryptoService = require('./cryptoService');
 
-/**
- * Decrypt a stored private key.
- * Handles both encrypted (AES via cryptoService) and legacy plaintext keys.
- */
-function decryptPrivateKey(key) {
-    try {
-        const decrypted = cryptoService.decrypt(key);
-        if (decrypted && decrypted.includes('-----BEGIN')) return decrypted;
-    } catch (_) {
-        // Not encrypted — fall through
-    }
-    return key;
-}
-
 class SSHPool {
     constructor() {
         // Connection pool: nodeId -> { client, meta }
@@ -152,9 +138,9 @@ class SSHPool {
             
             // Authentication
             if (node.ssh?.privateKey) {
-                sshConfig.privateKey = decryptPrivateKey(node.ssh.privateKey);
+                sshConfig.privateKey = cryptoService.decryptPrivateKey(node.ssh.privateKey);
             } else if (node.ssh?.password) {
-                sshConfig.password = cryptoService.decrypt(node.ssh.password);
+                sshConfig.password = cryptoService.decryptSafe(node.ssh.password);
             } else {
                 clearTimeout(timeout);
                 reject(new Error('SSH: no key or password'));

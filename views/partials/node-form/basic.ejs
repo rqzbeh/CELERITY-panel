@@ -1,0 +1,125 @@
+            <%# ========== 1. Identification ========== %>
+            <div class="form-row-3">
+                <div class="form-group">
+                    <label for="name"><%= t('nodes.nodeName') %></label>
+                    <input type="text" id="name" name="name" value="<%= node?.name || '' %>"
+                           placeholder="<%= t('nodes.nodeNamePlaceholder') %>" required>
+                    <small><%= t('nodes.nodeNameHint') %></small>
+                </div>
+                <div class="form-group">
+                    <label for="ip"><%= t('nodes.ipAddress') %></label>
+                    <input type="text" id="ip" name="ip" value="<%= node?.ip || '' %>"
+                           placeholder="123.45.67.89" required>
+                </div>
+                <div class="form-group">
+                    <label for="flag"><%= t('nodes.flag') %></label>
+                    <input type="text" id="flag" name="flag" value="<%= node?.flag || '' %>"
+                           placeholder="<%= t('nodes.flagPlaceholder') %>">
+                    <small><%= t('nodes.flagHint') %></small>
+                </div>
+            </div>
+
+            <%# ========== 1b. Cascade Role & Country (Xray only) ========== %>
+            <div class="form-section xray-only" id="cascadeRoleSection" style="<%= node?.type === 'xray' ? '' : 'display:none' %>">
+                <h3><i class="ti ti-topology-star-3"></i> <%= t('nodes.cascadeRole') %></h3>
+                <small class="section-hint"><%= t('nodes.cascadeRoleHint') %></small>
+
+                <%# Hidden input carries the actual value %>
+                <input type="hidden" id="cascadeRole" name="cascadeRole" value="<%= node?.cascadeRole || 'standalone' %>">
+
+                <div class="cascade-role-picker">
+                    <label class="role-card <%= (node?.cascadeRole || 'standalone') === 'standalone' ? 'active' : '' %>"
+                           onclick="selectCascadeRole('standalone', this)">
+                        <span class="role-card-icon role-standalone"><i class="ti ti-server"></i></span>
+                        <span class="role-card-body">
+                            <span class="role-card-name">Standalone</span>
+                            <span class="role-card-desc"><%= t('nodes.roleStandalone') %></span>
+                        </span>
+                    </label>
+                    <label class="role-card <%= node?.cascadeRole === 'portal' ? 'active' : '' %>"
+                           onclick="selectCascadeRole('portal', this)">
+                        <span class="role-card-icon role-portal"><i class="ti ti-door-enter"></i></span>
+                        <span class="role-card-body">
+                            <span class="role-card-name">Portal</span>
+                            <span class="role-card-desc"><%= t('nodes.rolePortal') %></span>
+                        </span>
+                    </label>
+                    <label class="role-card <%= node?.cascadeRole === 'bridge' ? 'active' : '' %>"
+                           onclick="selectCascadeRole('bridge', this)">
+                        <span class="role-card-icon role-bridge"><i class="ti ti-door-exit"></i></span>
+                        <span class="role-card-body">
+                            <span class="role-card-name">Bridge</span>
+                            <span class="role-card-desc"><%= t('nodes.roleBridge') %></span>
+                        </span>
+                    </label>
+                    <label class="role-card <%= node?.cascadeRole === 'relay' ? 'active' : '' %>"
+                           onclick="selectCascadeRole('relay', this)">
+                        <span class="role-card-icon role-relay"><i class="ti ti-arrows-exchange"></i></span>
+                        <span class="role-card-body">
+                            <span class="role-card-name">Relay</span>
+                            <span class="role-card-desc"><%= t('nodes.roleRelay') %></span>
+                        </span>
+                    </label>
+                </div>
+
+                <div class="form-group" style="margin-top:12px; max-width:200px">
+                    <label for="country"><%= t('nodes.country') %></label>
+                    <input type="text" id="country" name="country"
+                           value="<%= node?.country || '' %>"
+                           placeholder="RU, DE, NL...">
+                    <small><%= t('nodes.countryHint') %></small>
+                </div>
+
+                <div class="alert alert-info" id="cascadeBridgeHint" style="<%= node?.cascadeRole === 'bridge' ? '' : 'display:none' %>">
+                    <i class="ti ti-info-circle"></i>
+                    <%= t('nodes.bridgeNodeHint') %>
+                </div>
+                <div class="alert alert-info" id="cascadePortalHint" style="<%= node?.cascadeRole === 'portal' ? '' : 'display:none' %>">
+                    <i class="ti ti-info-circle"></i>
+                    <%= t('nodes.portalNodeHint') %>
+                </div>
+            </div>
+
+            <%# ========== 2. Protocol ========== %>
+            <div class="form-section">
+                <h3><%= t('nodes.sectionProtocol') %></h3>
+                <div class="proto-switcher">
+                    <label class="proto-option <% if ((node?.type || 'hysteria') === 'hysteria') { %>active<% } %>" id="protoHysteriaLabel">
+                        <input type="radio" name="type" value="hysteria" id="protoHysteria"
+                               <%= (node?.type || 'hysteria') === 'hysteria' ? 'checked' : '' %>
+                               onchange="switchProto('hysteria')">
+                        <span class="proto-icon"><img src="/img/hysteria.svg" alt="Hysteria" style="width:24px;height:24px;"></span>
+                        <span class="proto-name">Hysteria 2</span>
+                        <span class="proto-desc">QUIC · HTTP auth · port hopping</span>
+                    </label>
+                    <label class="proto-option <% if (node?.type === 'xray') { %>active<% } %>" id="protoXrayLabel">
+                        <input type="radio" name="type" value="xray" id="protoXray"
+                               <%= node?.type === 'xray' ? 'checked' : '' %>
+                               onchange="switchProto('xray')">
+                        <span class="proto-icon"><img src="/img/xray.svg" alt="Xray" style="width:24px;height:24px;"></span>
+                        <span class="proto-name">Xray VLESS</span>
+                        <span class="proto-desc">Reality / TLS · WebSocket · gRPC</span>
+                    </label>
+                </div>
+            </div>
+
+            <%# ========== 3. Server Groups ========== %>
+            <div class="form-section">
+                <h3><%= t('nodes.groups') %></h3>
+                <small class="section-hint"><%= t('nodes.groupsHint') %></small>
+                <div class="groups-select">
+                    <% if (groups && groups.length > 0) { %>
+                        <% groups.forEach(group => {
+                            const isSelected = node?.groups?.some(g => g._id?.toString() === group._id.toString() || g.toString() === group._id.toString());
+                        %>
+                            <label class="checkbox-tag" style="border-color: <%= group.color %>">
+                                <input type="checkbox" name="groups" value="<%= group._id %>" <%= isSelected ? 'checked' : '' %>>
+                                <span class="tag-dot" style="background: <%= group.color %>"></span>
+                                <span><%= group.name %></span>
+                            </label>
+                        <% }); %>
+                    <% } else { %>
+                        <p class="hint"><%= t('nodes.noGroups') %> <a href="/panel/groups"><%= t('nodes.createGroup') %></a></p>
+                    <% } %>
+                </div>
+            </div>

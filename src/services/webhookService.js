@@ -17,6 +17,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const logger = require('../utils/logger');
+const cryptoService = require('./cryptoService');
 
 const WEBHOOK_TIMEOUT_MS = 5000;
 
@@ -83,7 +84,7 @@ async function send(event, data) {
         data,
     });
 
-    const secret = webhookSettings.secret || '';
+    const secret = cryptoService.decryptSafe(webhookSettings.secret) || '';
     const signature = sign(secret, timestamp, payload);
 
     try {

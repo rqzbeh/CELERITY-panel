@@ -12,20 +12,6 @@ const Settings = require('../models/settingsModel');
 const configGenerator = require('./configGenerator');
 
 /**
- * Decrypt a stored private key.
- * Handles both encrypted (AES via cryptoService) and legacy plaintext keys.
- */
-function decryptPrivateKey(key) {
-    try {
-        const decrypted = cryptoService.decrypt(key);
-        if (decrypted && decrypted.includes('-----BEGIN')) return decrypted;
-    } catch (_) {
-        // Not encrypted — fall through
-    }
-    return key;
-}
-
-/**
  * Check if a node is on the same VPS as the panel
  * Uses multiple heuristics: domain match, IP match via DNS, localhost detection
  * @param {Object} node - Node object with ip and domain fields
@@ -271,9 +257,9 @@ function connectSSH(node) {
         };
         
         if (node.ssh?.privateKey) {
-            connConfig.privateKey = decryptPrivateKey(node.ssh.privateKey);
+            connConfig.privateKey = cryptoService.decryptPrivateKey(node.ssh.privateKey);
         } else if (node.ssh?.password) {
-            connConfig.password = cryptoService.decrypt(node.ssh.password);
+            connConfig.password = cryptoService.decryptSafe(node.ssh.password);
         } else {
             return reject(new Error('SSH credentials not provided'));
         }

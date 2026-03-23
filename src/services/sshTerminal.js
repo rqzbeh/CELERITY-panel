@@ -6,20 +6,6 @@ const { Client } = require('ssh2');
 const logger = require('../utils/logger');
 const cryptoService = require('./cryptoService');
 
-/**
- * Decrypt a stored private key.
- * Handles both encrypted (AES via cryptoService) and legacy plaintext keys.
- */
-function decryptPrivateKey(key) {
-    try {
-        const decrypted = cryptoService.decrypt(key);
-        if (decrypted && decrypted.includes('-----BEGIN')) return decrypted;
-    } catch (_) {
-        // Not encrypted — fall through
-    }
-    return key;
-}
-
 class SSHTerminalManager {
     constructor() {
         this.sessions = new Map();
@@ -40,9 +26,9 @@ class SSHTerminalManager {
             };
             
             if (node.ssh?.privateKey) {
-                config.privateKey = decryptPrivateKey(node.ssh.privateKey);
+                config.privateKey = cryptoService.decryptPrivateKey(node.ssh.privateKey);
             } else if (node.ssh?.password) {
-                config.password = cryptoService.decrypt(node.ssh.password);
+                config.password = cryptoService.decryptSafe(node.ssh.password);
             } else {
                 reject(new Error('SSH credentials not configured'));
                 return;

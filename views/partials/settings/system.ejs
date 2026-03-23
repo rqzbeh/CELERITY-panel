@@ -1,0 +1,193 @@
+<!-- ==================== TAB: SYSTEM ==================== -->
+<div class="tab-content active" id="tab-system">
+    <!-- System Info Row -->
+    <div class="row" style="margin-bottom: 1.5rem;">
+        <div class="col-4">
+            <div class="card">
+                <div class="card-body" style="padding: 1rem;">
+                    <div class="settings-list">
+                        <div class="setting-item">
+                            <label><%= t('settings.baseUrl') %></label>
+                            <code style="font-size: 11px;"><%= config.BASE_URL %></code>
+                        </div>
+                        <div class="setting-item">
+                            <label><%= t('settings.mongodb') %></label>
+                            <code style="font-size: 11px;"><%= config.MONGO_URI.replace(/\/\/.*@/, '//***@').substring(0, 30) %>...</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card">
+                <div class="card-body" style="padding: 1rem;">
+                    <div class="settings-list">
+                        <div class="setting-item">
+                            <label>Uptime</label>
+                            <span><%= Math.floor(process.uptime() / 3600) %>h <%= Math.floor((process.uptime() % 3600) / 60) %>m</span>
+                        </div>
+                        <div class="setting-item">
+                            <label>Memory / Node.js</label>
+                            <span><%= Math.round(process.memoryUsage().heapUsed / 1024 / 1024) %> MB / <%= process.version %></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card">
+                <div class="card-body" style="padding: 1rem;">
+                    <% if (ssl.enabled) { %>
+                    <div style="color: var(--success); font-weight: 500;"><i class="ti ti-shield-check"></i> HTTPS</div>
+                    <div style="font-size: 12px; color: var(--text-muted);"><%= ssl.domain %></div>
+                    <% } else { %>
+                    <div style="color: var(--warning); font-weight: 500;"><i class="ti ti-alert-triangle"></i> HTTP</div>
+                    <div style="font-size: 12px; color: var(--text-muted);">SSL не настроен</div>
+                    <% } %>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- System Settings Form -->
+    <form method="POST" action="/panel/settings">
+        <!-- Row 1: Load Balancing + Limits -->
+        <div class="row" style="margin-bottom: 1rem;">
+            <div class="col-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="ti ti-scale"></i> <%= t('settings.loadBalancing') %></h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="settings-list">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="loadBalancing.enabled" 
+                                       <%= settings?.loadBalancing?.enabled ? 'checked' : '' %>>
+                                <span><%= t('settings.loadBalancingEnabled') %></span>
+                            </label>
+                            <small class="hint" style="display: block; margin-top: 0.25rem;">
+                                <%= t('settings.loadBalancingHint') %>
+                            </small>
+                            
+                            <label class="checkbox-label" style="margin-top: 0.75rem;">
+                                <input type="checkbox" name="loadBalancing.hideOverloaded" 
+                                       <%= settings?.loadBalancing?.hideOverloaded ? 'checked' : '' %>>
+                                <span><%= t('settings.hideOverloaded') %></span>
+                            </label>
+                            <small class="hint" style="display: block; margin-top: 0.25rem;">
+                                <%= t('settings.hideOverloadedHint') %>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="ti ti-device-mobile"></i> <%= t('settings.deviceLimit') %> &amp; <i class="ti ti-shield"></i> <%= t('settings.rateLimiting') %></h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="settings-grid">
+                            <div class="form-group">
+                                <label for="deviceGracePeriod"><%= t('settings.gracePeriod') %></label>
+                                <input type="number" name="deviceGracePeriod" id="deviceGracePeriod" 
+                                       value="<%= settings?.deviceGracePeriod ?? 15 %>" min="1" max="60">
+                                <small class="hint"><%= t('settings.gracePeriodHint') %></small>
+                            </div>
+                            <div class="form-group">
+                                <label for="rateLimit.subscriptionPerMinute"><%= t('settings.subscriptionsPerMinute') %></label>
+                                <input type="number" name="rateLimit.subscriptionPerMinute" id="rateLimit.subscriptionPerMinute" 
+                                       value="<%= settings?.rateLimit?.subscriptionPerMinute || 100 %>" min="10" max="1000">
+                                <small class="hint"><%= t('settings.subscriptionsPerMinuteHint') %></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Row 2: Caching + SSH Pool -->
+        <div class="row" style="margin-bottom: 1rem;">
+            <div class="col-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="ti ti-database"></i> <%= t('settings.caching') %></h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="settings-grid">
+                            <div class="form-group">
+                                <label for="cache.subscriptionTTL"><%= t('settings.subscriptionsTTL') %></label>
+                                <input type="number" name="cache.subscriptionTTL" id="cache.subscriptionTTL" 
+                                       value="<%= settings?.cache?.subscriptionTTL || 3600 %>" min="60" max="86400">
+                                <small class="hint"><%= t('settings.subscriptionsTTLHint') %></small>
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.userTTL"><%= t('settings.usersTTL') %></label>
+                                <input type="number" name="cache.userTTL" id="cache.userTTL" 
+                                       value="<%= settings?.cache?.userTTL || 900 %>" min="60" max="3600">
+                                <small class="hint"><%= t('settings.usersTTLHint') %></small>
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.onlineSessionsTTL"><%= t('settings.onlineSessionsTTL') %></label>
+                                <input type="number" name="cache.onlineSessionsTTL" id="cache.onlineSessionsTTL" 
+                                       value="<%= settings?.cache?.onlineSessionsTTL || 10 %>" min="5" max="60">
+                                <small class="hint"><%= t('settings.onlineSessionsTTLHint') %></small>
+                            </div>
+                            <div class="form-group">
+                                <label for="cache.activeNodesTTL"><%= t('settings.activeNodesTTL') %></label>
+                                <input type="number" name="cache.activeNodesTTL" id="cache.activeNodesTTL" 
+                                       value="<%= settings?.cache?.activeNodesTTL || 30 %>" min="10" max="300">
+                                <small class="hint"><%= t('settings.activeNodesTTLHint') %></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="ti ti-plug-connected"></i> <%= t('settings.sshPool') %></h2>
+                    </div>
+                    <div class="card-body">
+                        <label class="checkbox-label" style="margin-bottom: 0.75rem;">
+                            <input type="checkbox" name="sshPool.enabled" 
+                                   <%= settings?.sshPool?.enabled !== false ? 'checked' : '' %>>
+                            <span><%= t('settings.sshPoolEnabled') %></span>
+                        </label>
+                        <div class="settings-grid">
+                            <div class="form-group">
+                                <label for="sshPool.maxIdleTime"><%= t('settings.sshPoolIdleTime') %></label>
+                                <input type="number" name="sshPool.maxIdleTime" id="sshPool.maxIdleTime" 
+                                       value="<%= settings?.sshPool?.maxIdleTime || 120 %>" min="30" max="600">
+                            </div>
+                            <div class="form-group">
+                                <label for="sshPool.connectTimeout"><%= t('settings.sshPoolTimeout') %></label>
+                                <input type="number" name="sshPool.connectTimeout" id="sshPool.connectTimeout" 
+                                       value="<%= settings?.sshPool?.connectTimeout || 15 %>" min="5" max="60">
+                            </div>
+                            <div class="form-group">
+                                <label for="sshPool.keepAliveInterval"><%= t('settings.sshPoolKeepalive') %></label>
+                                <input type="number" name="sshPool.keepAliveInterval" id="sshPool.keepAliveInterval" 
+                                       value="<%= settings?.sshPool?.keepAliveInterval || 30 %>" min="10" max="120">
+                            </div>
+                            <div class="form-group">
+                                <label for="sshPool.maxRetries"><%= t('settings.sshPoolRetries') %></label>
+                                <input type="number" name="sshPool.maxRetries" id="sshPool.maxRetries" 
+                                       value="<%= settings?.sshPool?.maxRetries || 2 %>" min="0" max="5">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Save Button -->
+        <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+            <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 15px;">
+                <i class="ti ti-device-floppy"></i> <%= t('settings.saveAllSettings') %>
+            </button>
+        </div>
+    </form>
+</div>

@@ -7,6 +7,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const compression = require('compression');
+const cookieParser = require('cookie-parser');
 const cron = require('node-cron');
 const session = require('express-session');
 const RedisStore = require('connect-redis').default;
@@ -90,6 +91,7 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use(cookieParser());
 app.use(i18nMiddleware);
 app.use(countRequest);
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -491,6 +493,7 @@ async function startServer() {
             const server = http.createServer(app);
             
             setupWebSocketServer(server);
+            activeServers.push(server);
             
             server.listen(PORT, () => {
                 logger.info(`[Server] HTTP listening on port ${PORT} (behind Caddy)`);
@@ -539,12 +542,14 @@ async function startServer() {
             
             glInstance.ready((glx) => {
             const httpServer = glx.httpServer();
+            activeServers.push(httpServer);
             httpServer.listen(80, () => {
                     logger.info('[Server] HTTP listening on port 80');
             });
             
             const httpsServer = glx.httpsServer(null, app);
             setupWebSocketServer(httpsServer);
+            activeServers.push(httpsServer);
             
             httpsServer.listen(443, () => {
                 logger.info('[Server] HTTPS listening on port 443');
@@ -567,7 +572,6 @@ function setupWebSocketServer(server) {
     const wssLogs = new WebSocketServer({ noServer: true });
     const sshTerminal = require('./src/services/sshTerminal');
     const crypto = require('crypto');
-    const cookie = require('cookie');
     
     server.on('upgrade', (request, socket, head) => {
         const pathname = request.url;
@@ -818,16 +822,27 @@ function cleanOldLogs(days) {
 }
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-    logger.info('[Server] Shutting down...');
-    await mongoose.disconnect();
-    process.exit(0);
-});
+const activeServers = [];
+const FORCE_SHUTDOWN_MS = 10000;
 
-process.on('SIGINT', async () => {
-    logger.info('[Server] Shutting down...');
-    await mongoose.disconnect();
+let isShuttingDown = false;
+async function shutdown(signal) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    logger.info(`[Server] ${signal} received, shutting down...`);
+    await Promise.all(
+        activeServers.map(s => new Promise(resolve => s.close(resolve)))
+    );
+    if (cacheService.isConnected()) {
+        await cacheService.redis.quit().catch(() => {});
+    }
+    await mongoose.disconnect().catch(() => {});
     process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM').catch(() => process.exit(1)));
+process.on('SIGINT', () => shutdown('SIGINT').catch(() => process.exit(1)));
+process.on('SIGTERM', () => setTimeout(() => process.exit(1), FORCE_SHUTDOWN_MS).unref());
+process.on('SIGINT', () => setTimeout(() => process.exit(1), FORCE_SHUTDOWN_MS).unref());
 
 startServer();

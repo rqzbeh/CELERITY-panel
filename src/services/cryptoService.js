@@ -34,6 +34,55 @@ class CryptoService {
     }
 
     /**
+     * Decrypt with backwards-compatible plaintext fallback.
+     * Returns original value if decryption fails (legacy unencrypted data).
+     */
+    decryptSafe(value) {
+        if (!value) return '';
+        try {
+            const d = this.decrypt(value);
+            if (d) return d;
+        } catch (_) {}
+        return value;
+    }
+
+    /**
+     * Decrypt a stored SSH private key.
+     * Validates that the result looks like a PEM key; falls back to raw value.
+     */
+    decryptPrivateKey(key) {
+        if (!key) return '';
+        try {
+            const decrypted = this.decryptSafe(key);
+            if (decrypted && decrypted.includes('-----BEGIN')) return decrypted;
+        } catch (_) {}
+        return key;
+    }
+
+    /**
+     * Encrypt SSH password and privateKey fields before saving to DB.
+     */
+    encryptSshCredentials(ssh) {
+        if (!ssh) return ssh;
+        const result = { ...ssh };
+        if (result.password) result.password = this.encrypt(result.password);
+        if (result.privateKey) result.privateKey = this.encrypt(result.privateKey);
+        return result;
+    }
+
+    /**
+     * Decrypt SSH credentials with backwards-compatible plaintext fallback.
+     */
+    decryptSshCredentials(ssh) {
+        if (!ssh) return {};
+        return {
+            ...ssh,
+            password: this.decryptSafe(ssh.password),
+            privateKey: this.decryptPrivateKey(ssh.privateKey),
+        };
+    }
+
+    /**
      * Generate random secret for node stats API
      */
     generateNodeSecret() {

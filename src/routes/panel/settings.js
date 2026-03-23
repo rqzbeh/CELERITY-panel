@@ -1,0 +1,594 @@
+/**
+ * Panel routes: settings, backup settings, API keys, webhooks.
+ */
+
+const router = require('express').Router();
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+
+const HyUser = require('../../models/hyUserModel');
+const HyNode = require('../../models/hyNodeModel');
+const Settings = require('../../models/settingsModel');
+const Admin = require('../../models/adminModel');
+const ApiKey = require('../../models/apiKeyModel');
+const cryptoService = require('../../services/cryptoService');
+const totpService = require('../../services/totpService');
+const webhookService = require('../../services/webhookService');
+const cache = require('../../services/cacheService');
+const { invalidateSettingsCache } = require('../../utils/helpers');
+const config = require('../../../config');
+const logger = require('../../utils/logger');
+const {
+    render,
+    parseBool,
+    clearPanelTotpPending,
+    redirectSettingsSecurity,
+    SETTINGS_TOTP_ACTIONS,
+} = require('./helpers');
+
+// ==================== SETTINGS ====================
+
+// GET /settings
+router.get('/settings', async (req, res) => {
+    const ssl = {
+        enabled: !!config.PANEL_DOMAIN,
+        domain: config.PANEL_DOMAIN || null,
+    };
+    
+    const [admin, settings, apiKeys] = await Promise.all([
+        Admin.findOne({ username: req.session.adminUsername }),
+        Settings.get(),
+        ApiKey.listKeys(),
+    ]);
+
+    // Decrypt secrets for form display (stored encrypted since P1-encrypt-secrets)
+    if (settings?.webhook?.secret) {
+        settings.webhook.secret = cryptoService.decryptSafe(settings.webhook.secret);
+    }
+    if (settings?.backup?.s3?.secretAccessKey) {
+        settings.backup.s3.secretAccessKey = cryptoService.decryptSafe(settings.backup.s3.secretAccessKey);
+    }
+    
+    render(res, 'settings', {
+        title: res.locals.locales.settings.title,
+        page: 'settings',
+        ssl,
+        admin,
+        settings,
+        apiKeys,
+        validScopes: ApiKey.VALID_SCOPES,
+        webhookEvents: Object.values(webhookService.EVENTS),
+        message: req.query.message || null,
+        error: req.query.error || null,
+    });
+});
+
+// POST /settings - Save settings
+router.post('/settings', async (req, res) => {
+    try {
+        const { reloadSettings } = require('../../index');
+        
+        const updates = {
+            'loadBalancing.enabled': req.body['loadBalancing.enabled'] === 'on',
+            'loadBalancing.hideOverloaded': req.body['loadBalancing.hideOverloaded'] === 'on',
+            // Device limit
+            'deviceGracePeriod': parseInt(req.body['deviceGracePeriod']) || 15,
+            // Cache TTL
+            'cache.subscriptionTTL': parseInt(req.body['cache.subscriptionTTL']) || 3600,
+            'cache.userTTL': parseInt(req.body['cache.userTTL']) || 900,
+            'cache.onlineSessionsTTL': parseInt(req.body['cache.onlineSessionsTTL']) || 10,
+            'cache.activeNodesTTL': parseInt(req.body['cache.activeNodesTTL']) || 30,
+            // Rate limits
+            'rateLimit.subscriptionPerMinute': parseInt(req.body['rateLimit.subscriptionPerMinute']) || 100,
+            // SSH Pool
+            'sshPool.enabled': req.body['sshPool.enabled'] === 'on',
+            'sshPool.maxIdleTime': parseInt(req.body['sshPool.maxIdleTime']) || 120,
+            'sshPool.connectTimeout': parseInt(req.body['sshPool.connectTimeout']) || 15,
+            'sshPool.keepAliveInterval': parseInt(req.body['sshPool.keepAliveInterval']) || 30,
+            'sshPool.maxRetries': parseInt(req.body['sshPool.maxRetries']) || 2,
+            // Node Auth
+            'nodeAuth.insecure': req.body['nodeAuth.insecure'] === 'on',
+        };
+        
+        // Webhook settings (only when the dedicated webhook form is submitted)
+        if (req.body['_webhookSettings'] !== undefined) {
+            updates['webhook.enabled'] = req.body['webhook.enabled'] === 'on';
+            updates['webhook.url'] = req.body['webhook.url'] || '';
+            const rawWebhookSecret = req.body['webhook.secret'] || '';
+            updates['webhook.secret'] = rawWebhookSecret ? cryptoService.encrypt(rawWebhookSecret) : '';
+            const rawEvents = req.body['webhook.events'];
+            updates['webhook.events'] = rawEvents
+                ? (Array.isArray(rawEvents) ? rawEvents : [rawEvents])
+                : [];
+        }
+
+        // Subscription settings
+        if (req.body['_subscriptionSettings'] !== undefined) {
+            updates['subscription.supportUrl']     = req.body['subscription.supportUrl'] || '';
+            updates['subscription.webPageUrl']     = req.body['subscription.webPageUrl'] || '';
+            updates['subscription.happProviderId'] = req.body['subscription.happProviderId'] || '';
+            updates['subscription.logoUrl']        = req.body['subscription.logoUrl'] || '';
+            updates['subscription.pageTitle']      = req.body['subscription.pageTitle'] || '';
+        }
+
+        // Backup settings
+        if (req.body['_backupSettings'] || req.body['backup.enabled'] !== undefined) {
+            updates['backup.enabled'] = req.body['backup.enabled'] === 'on';
+            updates['backup.intervalHours'] = parseInt(req.body['backup.intervalHours']) || 24;
+            updates['backup.keepLast'] = parseInt(req.body['backup.keepLast']) || 7;
+            // S3
+            updates['backup.s3.enabled'] = req.body['backup.s3.enabled'] === 'on';
+            updates['backup.s3.endpoint'] = req.body['backup.s3.endpoint'] || '';
+            updates['backup.s3.region'] = req.body['backup.s3.region'] || 'us-east-1';
+            updates['backup.s3.bucket'] = req.body['backup.s3.bucket'] || '';
+            updates['backup.s3.prefix'] = req.body['backup.s3.prefix'] || 'backups';
+            updates['backup.s3.accessKeyId'] = req.body['backup.s3.accessKeyId'] || '';
+            if (req.body['backup.s3.secretAccessKey']) {
+                updates['backup.s3.secretAccessKey'] = cryptoService.encrypt(req.body['backup.s3.secretAccessKey']);
+            }
+            updates['backup.s3.keepLast'] = parseInt(req.body['backup.s3.keepLast']) || 30;
+        }
+        
+        await Settings.update(updates);
+        
+        await invalidateSettingsCache();
+        await reloadSettings();
+        
+        const sshPool = require('../../services/sshPoolService');
+        await sshPool.reloadSettings();
+        
+        logger.info(`[Panel] Settings updated`);
+        
+        res.redirect('/panel/settings?message=' + encodeURIComponent('Настройки сохранены'));
+    } catch (error) {
+        logger.error('[Panel] Settings save error:', error.message);
+        res.redirect('/panel/settings?error=' + encodeURIComponent(`${res.locals.t?.('common.error') || 'Error'}: ${error.message}`));
+    }
+});
+
+// POST /settings/password - Change password
+router.post('/settings/password', async (req, res) => {
+    try {
+        const currentPassword = String(req.body.currentPassword || '');
+        const newPassword = String(req.body.newPassword || '');
+        const confirmPassword = String(req.body.confirmPassword || '');
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            return redirectSettingsSecurity(res, { error: 'Заполните все поля' });
+        }
+
+        if (newPassword.length < 6) {
+            return redirectSettingsSecurity(res, { error: 'Новый пароль должен быть минимум 6 символов' });
+        }
+
+        if (newPassword !== confirmPassword) {
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('settings.passwordsMismatch') || 'Passwords do not match' });
+        }
+
+        const admin = await Admin.verifyPassword(req.session.adminUsername, currentPassword);
+        if (!admin) {
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.invalidCurrentPassword') || 'Invalid current password' });
+        }
+
+        if (!admin.twoFactor?.enabled) {
+            await Admin.changePassword(req.session.adminUsername, newPassword);
+
+            logger.info(`[Panel] Password changed for: ${req.session.adminUsername}`);
+            return redirectSettingsSecurity(res, { message: res.locals.t?.('auth.passwordChanged') || 'Password successfully changed' });
+        }
+
+        if (!admin.twoFactor.secretEncrypted) {
+            logger.warn(`[Panel] Missing TOTP secret for enabled 2FA on password change: ${req.session.adminUsername} (IP: ${req.ip})`);
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpConfigError') || 'TOTP configuration error' });
+        }
+
+        const newPasswordHash = await bcrypt.hash(newPassword, 12);
+        req.session.panelTotpPending = {
+            type: 'settings',
+            action: 'password_change',
+            username: req.session.adminUsername,
+            returnTo: '/panel/settings?tab=security',
+            payload: {
+                newPasswordHash,
+            },
+            createdAt: Date.now(),
+        };
+
+        return res.redirect('/panel/totp');
+    } catch (error) {
+        logger.error('[Panel] Password change error:', error.message);
+        return redirectSettingsSecurity(res, { error: error.message });
+    }
+});
+
+// POST /settings/totp/start - Start enable/rotate flow
+router.post('/settings/totp/start', async (req, res) => {
+    try {
+        const intent = String(req.body.intent || '').trim();
+        const currentPassword = String(req.body.currentPassword || '');
+
+        if (!['enable', 'rotate'].includes(intent)) {
+            clearPanelTotpPending(req);
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpFlowError') || 'Invalid TOTP action' });
+        }
+
+        if (!currentPassword) {
+            clearPanelTotpPending(req);
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.enterCurrentPassword') || 'Enter current password' });
+        }
+
+        const admin = await Admin.verifyPassword(req.session.adminUsername, currentPassword);
+        if (!admin) {
+            clearPanelTotpPending(req);
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.invalidCurrentPassword') || 'Invalid current password' });
+        }
+
+        if (intent === 'enable') {
+            if (admin.twoFactor?.enabled) {
+                clearPanelTotpPending(req);
+                return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpAlreadyEnabled') || 'TOTP is already enabled' });
+            }
+
+            const enrollment = await totpService.generateEnrollmentData({ username: admin.username });
+            req.session.panelTotpPending = {
+                type: 'settings',
+                action: 'totp_enable_enroll',
+                username: admin.username,
+                returnTo: '/panel/settings?tab=security',
+                secretEncrypted: enrollment.secretEncrypted,
+                createdAt: Date.now(),
+            };
+
+            return res.redirect('/panel/totp');
+        }
+
+        if (!admin.twoFactor?.enabled || !admin.twoFactor?.secretEncrypted) {
+            clearPanelTotpPending(req);
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpRequiredForRotate') || 'TOTP must be enabled to rotate' });
+        }
+
+        req.session.panelTotpPending = {
+            type: 'settings',
+            action: 'totp_rotate_verify_current',
+            username: admin.username,
+            returnTo: '/panel/settings?tab=security',
+            payload: {
+                currentSecretEncrypted: admin.twoFactor.secretEncrypted,
+            },
+            createdAt: Date.now(),
+        };
+
+        return res.redirect('/panel/totp');
+    } catch (error) {
+        clearPanelTotpPending(req);
+        logger.error('[Panel] Settings TOTP start error:', error.message);
+        return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpFlowError') || 'Error starting TOTP flow' });
+    }
+});
+
+// POST /settings/totp/disable - Disable TOTP for current admin
+router.post('/settings/totp/disable', async (req, res) => {
+    try {
+        const currentPassword = String(req.body.currentPassword || '');
+
+        if (!currentPassword) {
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.enterCurrentPassword') || 'Enter current password' });
+        }
+
+        const admin = await Admin.verifyPassword(req.session.adminUsername, currentPassword);
+        if (!admin) {
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.invalidCurrentPassword') || 'Invalid current password' });
+        }
+
+        if (!admin.twoFactor?.enabled || !admin.twoFactor?.secretEncrypted) {
+            return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpAlreadyDisabled') || 'TOTP is already disabled' });
+        }
+
+        req.session.panelTotpPending = {
+            type: 'settings',
+            action: 'totp_disable_verify_current',
+            username: admin.username,
+            returnTo: '/panel/settings?tab=security',
+            payload: {
+                currentSecretEncrypted: admin.twoFactor.secretEncrypted,
+            },
+            createdAt: Date.now(),
+        };
+
+        return res.redirect('/panel/totp');
+    } catch (error) {
+        logger.error('[Panel] Settings TOTP disable error:', error.message);
+        return redirectSettingsSecurity(res, { error: res.locals.t?.('auth.totpDisableError') || 'Error disabling TOTP' });
+    }
+});
+
+// POST /settings/reset-traffic - Reset traffic counters for all users
+router.post('/settings/reset-traffic', async (req, res) => {
+    try {
+        const result = await HyUser.updateMany(
+            {},
+            {
+                $set: {
+                    'traffic.tx': 0,
+                    'traffic.rx': 0,
+                    'traffic.lastUpdate': new Date()
+                }
+            }
+        );
+        
+        logger.warn(`[Panel] Traffic reset for ${result.modifiedCount} users by admin: ${req.session.adminUsername}`);
+        
+        const users = await HyUser.find({}).select('userId subscriptionToken').lean();
+        const invalidateTasks = users.flatMap((user) => {
+            const tasks = [() => cache.invalidateUser(user.userId)];
+            if (user.subscriptionToken) {
+                tasks.push(() => cache.invalidateSubscription(user.subscriptionToken));
+            }
+            return tasks;
+        });
+
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < invalidateTasks.length; i += BATCH_SIZE) {
+            await Promise.all(invalidateTasks.slice(i, i + BATCH_SIZE).map((task) => task()));
+        }
+        
+        await cache.invalidateDashboardCounts();
+        await cache.invalidateTrafficStats();
+        
+        res.json({ 
+            success: true, 
+            count: result.modifiedCount,
+            message: `Трафик сброшен у ${result.modifiedCount} пользователей`
+        });
+    } catch (error) {
+        logger.error('[Panel] Traffic reset error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /settings/reset-stats - Reset statistics
+router.post('/settings/reset-stats', async (req, res) => {
+    try {
+        const StatsSnapshot = require('../../models/statsSnapshotModel');
+        const result = await StatsSnapshot.deleteMany({});
+        
+        logger.warn(`[Panel] Stats reset: ${result.deletedCount} snapshots deleted by admin: ${req.session.adminUsername}`);
+        
+        const statsService = require('../../services/statsService');
+        await statsService.invalidateCache();
+        
+        res.json({ 
+            success: true, 
+            count: result.deletedCount,
+            message: `Удалено ${result.deletedCount} записей статистики`
+        });
+    } catch (error) {
+        logger.error('[Panel] Stats reset error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /settings/flush-cache - Flush all Redis cache
+router.post('/settings/flush-cache', async (req, res) => {
+    try {
+        const result = await cache.flushAll();
+        
+        if (result.success) {
+            logger.info(`[Panel] Cache flushed by admin: ${req.session.adminUsername}`);
+            res.json({ success: true, message: 'Cache cleared' });
+        } else {
+            res.status(500).json({ success: false, error: result.error || 'Failed to flush cache' });
+        }
+    } catch (error) {
+        logger.error('[Panel] Cache flush error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== BACKUP SETTINGS ====================
+
+// POST /settings/create-backup - Create backup now
+router.post('/settings/create-backup', async (req, res) => {
+    try {
+        const backupService = require('../../services/backupService');
+        const settings = await Settings.get();
+        
+        const result = await backupService.createBackup(settings);
+        
+        res.json({
+            success: true,
+            filename: result.filename,
+            size: result.sizeMB,
+        });
+    } catch (error) {
+        logger.error(`[Backup] Manual backup error: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /settings/test-s3 - Test S3 connection
+router.post('/settings/test-s3', async (req, res) => {
+    try {
+        const backupService = require('../../services/backupService');
+        const { endpoint, region, bucket, accessKeyId, secretAccessKey } = req.body;
+        
+        if (!bucket || !accessKeyId || !secretAccessKey) {
+            return res.status(400).json({ error: 'Bucket, Access Key и Secret Key обязательны' });
+        }
+        
+        const result = await backupService.testS3Connection({
+            endpoint,
+            region: region || 'us-east-1',
+            bucket,
+            accessKeyId,
+            secretAccessKey,
+        });
+        
+        if (result.success) {
+            res.json({ success: true });
+        } else {
+            res.status(400).json({ error: result.error });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /settings/backups - List local backups
+router.get('/settings/backups', async (req, res) => {
+    try {
+        const backupService = require('../../services/backupService');
+        const backups = await backupService.listBackups();
+        res.json({ backups });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /settings/backups-s3 - List S3 backups
+router.get('/settings/backups-s3', async (req, res) => {
+    try {
+        const backupService = require('../../services/backupService');
+        const settings = await Settings.get();
+        
+        if (!settings?.backup?.s3?.enabled) {
+            return res.json({ backups: [], error: 'S3 not configured' });
+        }
+        
+        const backups = await backupService.listS3Backups(settings);
+        res.json({ backups });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /settings/restore-backup - Restore from backup (local or S3)
+router.post('/settings/restore-backup', async (req, res) => {
+    try {
+        const backupService = require('../../services/backupService');
+        const settings = await Settings.get();
+        const { source, identifier } = req.body;
+        
+        if (!source || !identifier) {
+            return res.status(400).json({ error: 'Source and identifier required' });
+        }
+        
+        if (source !== 'local' && source !== 's3') {
+            return res.status(400).json({ error: 'Invalid source' });
+        }
+        
+        if (source === 's3' && !settings?.backup?.s3?.enabled) {
+            return res.status(400).json({ error: 'S3 not configured' });
+        }
+        
+        logger.info(`[Restore] Starting restore from ${source}: ${identifier}`);
+        
+        await backupService.restoreBackup(settings, source, identifier);
+        
+        logger.info(`[Restore] Completed successfully`);
+        
+        res.json({ success: true, message: 'Database restored successfully' });
+    } catch (error) {
+        logger.error(`[Restore] Error: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== API KEYS ====================
+
+// POST /api-keys - Create a new API key (returns plaintext key once)
+router.post('/api-keys', async (req, res) => {
+    try {
+        const { name, scopes, allowedIPs, rateLimit, expiresAt } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: 'Name is required' });
+        }
+
+        const scopesArr = scopes
+            ? (Array.isArray(scopes) ? scopes : [scopes])
+            : [];
+
+        const invalidScopes = scopesArr.filter(s => !ApiKey.VALID_SCOPES.includes(s));
+        if (invalidScopes.length > 0) {
+            return res.status(400).json({ error: `Invalid scopes: ${invalidScopes.join(', ')}` });
+        }
+
+        const allowedIPsArr = allowedIPs
+            ? allowedIPs.split('\n').map(s => s.trim()).filter(Boolean)
+            : [];
+
+        const { doc, plainKey } = await ApiKey.createKey({
+            name: name.trim(),
+            scopes: scopesArr,
+            allowedIPs: allowedIPsArr,
+            rateLimit: parseInt(rateLimit) || 60,
+            expiresAt: expiresAt || null,
+            createdBy: req.session.adminUsername,
+        });
+
+        logger.info(`[Panel] API key created: "${doc.name}" (${doc.keyPrefix}...) by ${req.session.adminUsername}`);
+
+        res.json({ success: true, key: plainKey, doc });
+    } catch (error) {
+        logger.error(`[Panel] API key create error: ${error.message}`);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api-keys/:id/toggle - Enable/disable a key
+router.post('/api-keys/:id/toggle', async (req, res) => {
+    try {
+        const key = await ApiKey.findById(req.params.id);
+        if (!key) {
+            return res.status(404).json({ error: 'API key not found' });
+        }
+
+        key.active = !key.active;
+        await key.save();
+
+        logger.info(`[Panel] API key ${key.keyPrefix}... ${key.active ? 'enabled' : 'disabled'} by ${req.session.adminUsername}`);
+        res.json({ success: true, active: key.active });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api-keys/:id/delete - Delete a key
+router.post('/api-keys/:id/delete', async (req, res) => {
+    try {
+        const key = await ApiKey.findByIdAndDelete(req.params.id);
+        if (!key) {
+            return res.status(404).json({ error: 'API key not found' });
+        }
+
+        logger.info(`[Panel] API key "${key.name}" (${key.keyPrefix}...) deleted by ${req.session.adminUsername}`);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /settings/test-webhook - Send test webhook
+router.post('/settings/test-webhook', async (req, res) => {
+    try {
+        const { url, secret } = req.body;
+
+        if (!url || !url.trim()) {
+            return res.status(400).json({ error: 'URL is required' });
+        }
+
+        const result = await webhookService.test(url.trim(), secret || '');
+
+        if (result.success) {
+            logger.info(`[Panel] Webhook test OK: ${url} (HTTP ${result.status})`);
+            res.json({ success: true, status: result.status });
+        } else {
+            res.status(400).json({ success: false, error: result.error, status: result.status });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;

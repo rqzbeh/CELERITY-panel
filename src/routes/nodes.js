@@ -114,7 +114,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             statsPort: statsPort || 9999,
             statsSecret,
             groups: groups || [],
-            ssh: ssh || {},
+            ssh: cryptoService.encryptSshCredentials(ssh || {}),
             paths: paths || {},
             settings: settings || {},
             rankingCoefficient: rankingCoefficient || 1.0,
@@ -167,7 +167,9 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
         const updates = {};
         for (const key of allowedUpdates) {
             if (req.body[key] !== undefined) {
-                updates[key] = req.body[key];
+                updates[key] = key === 'ssh'
+                    ? cryptoService.encryptSshCredentials(req.body[key])
+                    : req.body[key];
             }
         }
         
@@ -302,6 +304,11 @@ router.post('/:id/sync', requireScope('nodes:write'), async (req, res) => {
         if (!node) {
             return res.status(404).json({ error: 'Нода не найдена' });
         }
+        
+        const syncService = require('../services/syncService');
+        syncService.updateNodeConfig(node).catch(err => {
+            logger.error(`[Nodes API] Sync error for ${node.name}: ${err.message}`);
+        });
         
         logger.info(`[Nodes API] Started sync for node ${node.name}`);
         

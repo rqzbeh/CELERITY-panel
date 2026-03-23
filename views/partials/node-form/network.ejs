@@ -1,0 +1,110 @@
+            <%# ========== 4. Network ========== %>
+            <div class="form-section" id="networkSection">
+                <h3><%= t('nodes.sectionNetwork') %></h3>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="port"><%= t('nodes.port') %></label>
+                        <input type="number" id="port" name="port" value="<%= node?.port || 443 %>"
+                               placeholder="443" oninput="checkXrayPortConflict()">
+                    </div>
+                    <div class="form-group hysteria-only" id="portRangeGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                        <label for="portRange"><%= t('nodes.portRange') %></label>
+                        <input type="text" id="portRange" name="portRange" value="<%= node?.portRange || '20000-50000' %>"
+                               placeholder="20000-50000">
+                        <small><%= t('nodes.portRangeHint') %></small>
+                    </div>
+                </div>
+
+                <div class="form-group hysteria-only" id="hopIntervalGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                    <label for="hopInterval"><%= t('nodes.hopInterval') %></label>
+                    <input type="text" id="hopInterval" name="hopInterval" value="<%= node?.hopInterval || '' %>" placeholder="30s">
+                    <small><%- renderDocsIcon('portHopping') %><%= t('nodes.hopIntervalHint') %></small>
+                </div>
+
+                <div id="xrayPortConflictWarn" class="alert alert-error" style="display:none;">
+                    <i class="ti ti-alert-triangle"></i>
+                    <strong><%= t('nodes.portConflictTitle') %>:</strong>
+                    <%= t('nodes.portConflictDesc') %>
+                </div>
+
+                <div class="form-group hysteria-only" id="domainGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                    <label for="domain"><%= t('nodes.domain') %></label>
+                    <input type="text" id="domain" name="domain" value="<%= node?.domain || '' %>"
+                           placeholder="de.example.com" oninput="toggleAcmeByDomain()">
+                    <small><%= t('nodes.domainHintHysteria') %></small>
+                </div>
+
+                <div class="form-group hysteria-only" id="acmeAdvancedToggleGroup" style="<%= node?.type === 'xray' || !node?.domain ? 'display:none' : '' %>">
+                    <div class="section-subtitle"><%= t('nodes.sectionAcmeAdvanced') %> (<%= t('nodes.optionalSuffix') %>)</div>
+                    <small class="section-hint"><%- renderDocsIcon('acme') %><%= t('nodes.sectionAcmeAdvancedHint') %></small>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="acmeEmail"><%= t('nodes.acmeEmail') %></label>
+                            <input type="text" id="acmeEmail" name="acme.email" value="<%= node?.acme?.email || '' %>" placeholder="admin@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="acmeCa"><%= t('nodes.acmeCa') %></label>
+                            <select id="acmeCa" name="acme.ca">
+                                <option value="letsencrypt" <%= (node?.acme?.ca || 'letsencrypt') === 'letsencrypt' ? 'selected' : '' %>>Let's Encrypt</option>
+                                <option value="zerossl" <%= node?.acme?.ca === 'zerossl' ? 'selected' : '' %>>ZeroSSL</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="acmeAdvancedEnabled" name="acme.advanced.enabled" <%= acmeAdvancedEnabled ? 'checked' : '' %> onchange="toggleAcmeAdvancedFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
+                    </label>
+                </div>
+
+                <div class="hysteria-only optional-fields-wrap" id="acmeAdvancedFieldsWrap" style="<%= node?.type === 'xray' || !node?.domain || !acmeAdvancedEnabled ? 'display:none' : '' %>">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="acmeListenHost"><%= t('nodes.acmeListenHost') %></label>
+                            <input type="text" id="acmeListenHost" name="acme.listenHost" value="<%= node?.acme?.listenHost || '0.0.0.0' %>" placeholder="0.0.0.0">
+                        </div>
+                        <div class="form-group">
+                            <label for="acmeType"><%= t('nodes.acmeType') %></label>
+                            <select id="acmeType" name="acme.type" onchange="toggleAcmeTypeFields()">
+                                <option value="" <%= !node?.acme?.type ? 'selected' : '' %>><%= t('nodes.acmeTypeAuto') %></option>
+                                <option value="http" <%= node?.acme?.type === 'http' ? 'selected' : '' %>>HTTP-01</option>
+                                <option value="tls" <%= node?.acme?.type === 'tls' ? 'selected' : '' %>>TLS-ALPN-01</option>
+                                <option value="dns" <%= node?.acme?.type === 'dns' ? 'selected' : '' %>>DNS-01</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row" id="acmeAltPortFields" style="<%= (node?.acme?.type === 'http' || node?.acme?.type === 'tls') ? '' : 'display:none' %>">
+                        <div class="form-group <%= node?.acme?.type && node?.acme?.type !== 'http' ? 'is-inactive' : '' %>" id="acmeHttpFieldGroup">
+                            <label for="acmeHttpAltPort"><%= t('nodes.acmeHttpAltPort') %></label>
+                            <input type="number" id="acmeHttpAltPort" name="acme.httpAltPort" value="<%= node?.acme?.httpAltPort || '' %>" placeholder="8080" min="1" max="65535">
+                        </div>
+                        <div class="form-group <%= node?.acme?.type && node?.acme?.type !== 'tls' ? 'is-inactive' : '' %>" id="acmeTlsFieldGroup">
+                            <label for="acmeTlsAltPort"><%= t('nodes.acmeTlsAltPort') %></label>
+                            <input type="number" id="acmeTlsAltPort" name="acme.tlsAltPort" value="<%= node?.acme?.tlsAltPort || '' %>" placeholder="8443" min="1" max="65535">
+                        </div>
+                    </div>
+
+                    <div id="acmeDnsFields" style="<%= node?.acme?.type === 'dns' ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="acmeDnsName"><%= t('nodes.acmeDnsName') %></label>
+                                <input type="text" id="acmeDnsName" name="acme.dns.name" value="<%= node?.acme?.dnsName || '' %>" placeholder="cloudflare">
+                                <small><%- renderDocsIcon('acmeDnsConfig') %><%= t('nodes.acmeDnsProviderHint') %></small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="acmeDnsConfig"><%= t('nodes.acmeDnsConfig') %></label>
+                            <textarea id="acmeDnsConfig" name="acme.dns.config" rows="6" class="code-textarea" placeholder='{"cloudflare_api_token":"..."}'><%= node?.acme?.dnsConfig && Object.keys(node.acme.dnsConfig || {}).length ? JSON.stringify(node.acme.dnsConfig, null, 2) : '' %></textarea>
+                            <small><%= t('nodes.acmeDnsConfigHint') %></small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group hysteria-only" id="sniGroup" style="<%= sniVisibleInitially ? '' : 'display:none' %>">
+                    <label for="sni">SNI</label>
+                    <input type="text" id="sni" name="sni" value="<%= node?.sni || '' %>"
+                           placeholder="bing.com">
+                    <small><%= t('nodes.sniHintHysteria') %></small>
+                </div>
+            </div>

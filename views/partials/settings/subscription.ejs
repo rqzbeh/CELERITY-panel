@@ -1,0 +1,89 @@
+<!-- ==================== TAB: SUBSCRIPTION ==================== -->
+<div class="tab-content" id="tab-subscription">
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="ti ti-device-mobile"></i> <%= t('settings.subClientApps') || 'Клиентские приложения' %></h2>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="/panel/settings">
+                <input type="hidden" name="_subscriptionSettings" value="1">
+
+                <div class="row" style="margin-bottom: 1rem;">
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label><%= t('settings.subLogoUrl') || 'URL логотипа' %></label>
+                            <input type="url" name="subscription.logoUrl"
+                                   value="<%= settings?.subscription?.logoUrl || '' %>"
+                                   placeholder="https://example.com/logo.png"
+                                   id="subLogoUrlInput"
+                                   oninput="previewLogo(this.value)">
+                            <small class="hint"><%= t('settings.subLogoUrlHint') || 'Ссылка на PNG/SVG/WebP. Оставьте пустым для иконки по умолчанию.' %></small>
+                        </div>
+                    </div>
+                    <div class="col-6" style="display: flex; align-items: center; gap: 1rem; padding-top: 0.5rem;">
+                        <div id="logoPreview" style="<%= settings?.subscription?.logoUrl ? '' : 'display:none;' %>">
+                            <img id="logoPreviewImg"
+                                 src="<%= settings?.subscription?.logoUrl || '' %>"
+                                 style="height: 48px; border-radius: 8px; border: 1px solid var(--border); padding: 4px; background: #0a0a0a;"
+                                 onerror="this.style.display='none'">
+                        </div>
+                        <div id="logoDefaultPreview" style="color: var(--text-muted); font-size: 13px; <%= settings?.subscription?.logoUrl ? 'display:none;' : '' %>">
+                            <i class="ti ti-rocket" style="font-size: 32px;"></i>
+                            <div style="font-size: 11px; margin-top: 4px;">по умолчанию</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1rem;">
+                    <label><%= t('settings.subPageTitle') || 'Заголовок страницы' %></label>
+                    <input type="text" name="subscription.pageTitle"
+                           value="<%= settings?.subscription?.pageTitle || '' %>"
+                           placeholder="Подключение">
+                    <small class="hint"><%= t('settings.subPageTitleHint') || 'Текст над логотипом. По умолчанию: «Подключение».' %></small>
+                </div>
+
+                <hr style="margin: 1.25rem 0; border-color: var(--border);">
+
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 1rem;">
+                    <i class="ti ti-info-circle"></i>
+                    Ссылки ниже отображаются в клиентах Hiddify / Clash как кнопки в карточке профиля.
+                </p>
+
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label><%= t('settings.subSupportUrl') || 'Ссылка на поддержку' %></label>
+                        <input type="url" name="subscription.supportUrl"
+                               value="<%= settings?.subscription?.supportUrl || '' %>"
+                               placeholder="https://t.me/yoursupport">
+                        <small class="hint"><%= t('settings.subSupportUrlHint') || 'Кнопка «Поддержка» в Hiddify.' %></small>
+                    </div>
+                    <div class="form-group">
+                        <label><%= t('settings.subWebPageUrl') || 'Ссылка на веб-страницу' %></label>
+                        <input type="url" name="subscription.webPageUrl"
+                               value="<%= settings?.subscription?.webPageUrl || '' %>"
+                               placeholder="https://example.com">
+                        <small class="hint"><%= t('settings.subWebPageUrlHint') || 'Кнопка «Открыть веб-страницу» в Hiddify.' %></small>
+                    </div>
+                </div>
+
+                <hr style="margin: 1.25rem 0; border-color: var(--border);">
+
+                <div class="form-group" style="max-width: 300px;">
+                    <label><%= t('settings.subHappProviderId') || 'HAPP Provider ID' %></label>
+                    <input type="text" name="subscription.happProviderId"
+                           value="<%= settings?.subscription?.happProviderId || '' %>"
+                           placeholder="Ab12Cd34"
+                           maxlength="8"
+                           style="font-family: monospace; letter-spacing: 0.05em;">
+                    <small class="hint"><%= t('settings.subHappProviderIdHint') || '8-символьный код из happ-proxy.com (опционально).' %></small>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
+                    <button type="submit" class="btn btn-primary" style="padding: 0.75rem 2rem;">
+                        <i class="ti ti-device-floppy"></i> <%= t('common.save') || 'Сохранить' %>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

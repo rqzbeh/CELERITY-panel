@@ -1,0 +1,140 @@
+<!-- ==================== TAB: BACKUP ==================== -->
+<div class="tab-content" id="tab-backup">
+    <div class="row" style="align-items: stretch;">
+        <div class="col-6" style="display: flex;">
+            <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="card-header">
+                    <h2><i class="ti ti-device-floppy"></i> <%= t('settings.autoBackup') %></h2>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="/panel/settings" id="backupSettingsForm">
+                        <input type="hidden" name="_backupSettings" value="1">
+                        
+                        <div class="settings-list" style="margin-bottom: 1rem;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="backup.enabled" id="backupEnabled"
+                                       <%= settings?.backup?.enabled ? 'checked' : '' %>>
+                                <span><%= t('settings.autoBackup') %></span>
+                            </label>
+                            <small class="hint" style="display: block; margin-top: 0.25rem;">
+                                <%= t('settings.autoBackupHint') %>
+                            </small>
+                        </div>
+                        
+                        <div id="backupSettings" style="<%= settings?.backup?.enabled ? '' : 'display: none;' %>">
+                            <div class="settings-grid" style="margin-bottom: 1rem;">
+                                <div class="form-group">
+                                    <label for="backup.intervalHours"><%= t('settings.backupInterval') %></label>
+                                    <input type="number" name="backup.intervalHours" id="backup.intervalHours" 
+                                           value="<%= settings?.backup?.intervalHours || 24 %>" min="1" max="168">
+                                    <small class="hint"><%= t('settings.backupIntervalHint') %></small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.keepLast"><%= t('settings.keepLast') %></label>
+                                    <input type="number" name="backup.keepLast" id="backup.keepLast" 
+                                           value="<%= settings?.backup?.keepLast || 7 %>" min="1" max="30">
+                                    <small class="hint"><%= t('settings.keepLastHint') %></small>
+                                </div>
+                            </div>
+                            
+                            <div class="setting-item" style="margin-bottom: 1rem; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;">
+                                <label><%= t('settings.lastBackup') %></label>
+                                <span id="lastBackupTime">
+                                    <%= settings?.backup?.lastBackup 
+                                        ? new Date(settings.backup.lastBackup).toLocaleString(lang === 'en' ? 'en-US' : 'ru-RU') 
+                                        : t('settings.never') %>
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <hr style="margin: 1rem 0; border-color: var(--border);">
+                        
+                        <h4 style="margin-bottom: 0.75rem;"><i class="ti ti-cloud"></i> <%= t('settings.s3Settings') %></h4>
+                        
+                        <div class="settings-list" style="margin-bottom: 1rem;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="backup.s3.enabled" id="s3Enabled"
+                                       <%= settings?.backup?.s3?.enabled ? 'checked' : '' %>>
+                                <span><%= t('settings.s3Enabled') %></span>
+                            </label>
+                            <small class="hint" style="display: block; margin-top: 0.25rem;">
+                                <%= t('settings.s3EnabledHint') %>
+                            </small>
+                        </div>
+                        
+                        <div id="s3Settings" style="<%= settings?.backup?.s3?.enabled ? '' : 'display: none;' %>">
+                            <div class="settings-grid" style="margin-bottom: 1rem;">
+                                <div class="form-group">
+                                    <label for="backup.s3.endpoint"><%= t('settings.s3Endpoint') %></label>
+                                    <input type="text" name="backup.s3.endpoint" id="backup.s3.endpoint" 
+                                           value="<%= settings?.backup?.s3?.endpoint || '' %>" 
+                                           placeholder="https://s3.example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.s3.region"><%= t('settings.s3Region') %></label>
+                                    <input type="text" name="backup.s3.region" id="backup.s3.region" 
+                                           value="<%= settings?.backup?.s3?.region || 'us-east-1' %>">
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.s3.bucket"><%= t('settings.s3Bucket') %> *</label>
+                                    <input type="text" name="backup.s3.bucket" id="backup.s3.bucket" 
+                                           value="<%= settings?.backup?.s3?.bucket || '' %>">
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.s3.prefix"><%= t('settings.s3Prefix') %></label>
+                                    <input type="text" name="backup.s3.prefix" id="backup.s3.prefix" 
+                                           value="<%= settings?.backup?.s3?.prefix || 'backups' %>">
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.s3.accessKeyId"><%= t('settings.s3AccessKey') %> *</label>
+                                    <input type="text" name="backup.s3.accessKeyId" id="backup.s3.accessKeyId" 
+                                           value="<%= settings?.backup?.s3?.accessKeyId || '' %>">
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.s3.secretAccessKey"><%= t('settings.s3SecretKey') %> *</label>
+                                    <input type="password" name="backup.s3.secretAccessKey" id="backup.s3.secretAccessKey" 
+                                           value="<%= settings?.backup?.s3?.secretAccessKey || '' %>">
+                                </div>
+                                <div class="form-group">
+                                    <label for="backup.s3.keepLast"><%= t('settings.s3KeepLast') %></label>
+                                    <input type="number" name="backup.s3.keepLast" id="backup.s3.keepLast" 
+                                           value="<%= settings?.backup?.s3?.keepLast || 30 %>" min="1" max="365">
+                                </div>
+                            </div>
+                            
+                            <button type="button" class="btn btn-sm" onclick="testS3Connection()" id="testS3Btn">
+                                <i class="ti ti-plug"></i> <%= t('settings.testS3') %>
+                            </button>
+                            <span id="s3TestResult" style="margin-left: 0.5rem;"></span>
+                        </div>
+                        
+                        <hr style="margin: 1rem 0; border-color: var(--border);">
+                        
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button type="submit" class="btn btn-primary"><i class="ti ti-device-floppy"></i> <%= t('common.save') %></button>
+                            <button type="button" class="btn btn-success" onclick="createBackupNow()" id="createBackupBtn">
+                                <i class="ti ti-database-export"></i> <%= t('settings.createBackupNow') %>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-6" style="display: flex;">
+            <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2><i class="ti ti-clipboard-list"></i> <%= t('settings.backupsList') || 'Доступные бэкапы' %></h2>
+                    <button type="button" class="btn btn-sm" onclick="loadBackupsList()" id="refreshBackupsBtn">
+                        <i class="ti ti-refresh"></i> <%= t('common.refresh') %>
+                    </button>
+                </div>
+                <div class="card-body" style="flex: 1; overflow-y: auto;">
+                    <div id="backupsList">
+                        <p style="color: var(--text-muted); font-size: 13px;"><%= t('settings.clickRefresh') || 'Нажмите "Обновить" для загрузки списка' %></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
