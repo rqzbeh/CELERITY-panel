@@ -36,6 +36,12 @@ services:
         condition: service_healthy
     expose:
       - "3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.celerity.rule=Host(`${DOKPLOY_PANEL_HOST}`)"
+      - "traefik.http.routers.celerity.entrypoints=websecure"
+      - "traefik.http.routers.celerity.tls=true"
+      - "traefik.http.services.celerity.loadbalancer.server.port=3000"
     env_file:
       - .env
     environment:
