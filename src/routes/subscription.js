@@ -624,13 +624,13 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     const trafficLimit = user.trafficLimit ? user.trafficLimit / (1024 * 1024 * 1024) : 0;
     const expireDate = user.expireAt ? new Date(user.expireAt).toLocaleDateString('ru-RU') : 'Бессрочно';
     
-    // Группируем по локациям
-    const locations = {};
+    // Group by location preserving node sort order (Map keeps insertion order for all key types)
+    const locations = new Map();
     allConfigs.forEach(cfg => {
-        if (!locations[cfg.location]) {
-            locations[cfg.location] = { flag: cfg.flag, configs: [] };
+        if (!locations.has(cfg.location)) {
+            locations.set(cfg.location, { flag: cfg.flag, configs: [] });
         }
-        locations[cfg.location].configs.push({ name: cfg.name, uri: cfg.uri });
+        locations.get(cfg.location).configs.push({ name: cfg.name, uri: cfg.uri });
     });
 
     // Кастомизация из настроек
@@ -730,7 +730,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                 <div class="stat-label">Использовано${trafficLimit > 0 ? ` / ${trafficLimit.toFixed(0)} ГБ` : ''}</div>
             </div>
             <div class="stat">
-                <div class="stat-value">${Object.keys(locations).length}</div>
+                <div class="stat-value">${locations.size}</div>
                 <div class="stat-label">Локаций</div>
             </div>
             <div class="stat">
@@ -749,7 +749,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         
         <div class="section">
             <h2><i class="ti ti-world"></i> ЛОКАЦИИ</h2>
-            ${Object.entries(locations).map(([name, loc]) => `
+            ${[...locations.entries()].map(([name, loc], locIdx) => `
             <div class="location">
                 <div class="location-header" onclick="this.parentElement.classList.toggle('open')">
                     <span class="location-flag">${loc.flag}</span>
@@ -760,7 +760,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
                     ${loc.configs.map((cfg, i) => `
                     <div class="config">
                         <span class="config-name">${cfg.name}</span>
-                        <button class="copy-btn" onclick="copyUri(${Object.entries(locations).indexOf([name, loc])}_${i}, this)">Копировать</button>
+                        <button class="copy-btn" onclick="copyUri(${locIdx}_${i}, this)">Копировать</button>
                     </div>
                     `).join('')}
                 </div>
