@@ -275,6 +275,7 @@
     "sectionAcmeAdvancedHint": "Advanced ACME options.",
     "acmeAdvancedToggle": "Advanced ACME options",
     "optionalSuffix": "optional",
+    "advancedSettings": "Advanced Parameters (optional)",
     "acmeEmail": "ACME Email",
     "acmeCa": "ACME CA",
     "acmeListenHost": "ACME Listen Host",

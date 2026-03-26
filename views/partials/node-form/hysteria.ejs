@@ -208,8 +208,20 @@
                 </div>
             </div>
 
+            <%# ========== Advanced optional sections (collapsible) ========== %>
+            <%
+            const advancedSectionsOpen = !!(bandwidthEnabled || node?.speedTest || udpOptionsEnabled || quicSectionEnabled || node?.resolver?.enabled);
+            %>
+            <details class="hysteria-only node-advanced-details" id="hysteriaAdvancedDetails"
+                     <%= advancedSectionsOpen ? 'open' : '' %>
+                     style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+                <summary class="node-advanced-summary">
+                    <span><i class="ti ti-adjustments-horizontal"></i> <%= t('nodes.advancedSettings') %></span>
+                    <i class="ti ti-chevron-down node-advanced-chevron"></i>
+                </summary>
+
             <%# ========== 9. Hysteria: Bandwidth ========== %>
-            <div class="form-section hysteria-only" id="hysteriaBandwidthSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section" id="hysteriaBandwidthSection">
                 <h3><%= t('nodes.sectionBandwidth') %> (<%= t('nodes.optionalSuffix') %>)</h3>
                 <small class="section-hint"><%- renderDocsIcon('bandwidth') %><%= t('nodes.sectionBandwidthHint') %></small>
                 <label class="checkbox-label">
@@ -235,7 +247,7 @@
             </div>
 
             <%# ========== 9. Hysteria: Speed Test ========== %>
-            <div class="form-section hysteria-only" id="hysteriaSpeedTestSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section" id="hysteriaSpeedTestSection">
                 <h3><%= t('nodes.sectionSpeedTest') %> (<%= t('nodes.optionalSuffix') %>)</h3>
                 <small class="section-hint"><%- renderDocsIcon('speedTest') %><%= t('nodes.sectionSpeedTestHint') %></small>
                 <label class="checkbox-label">
@@ -245,7 +257,7 @@
             </div>
 
             <%# ========== 10. Hysteria: UDP ========== %>
-            <div class="form-section hysteria-only" id="hysteriaUdpSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section" id="hysteriaUdpSection">
                 <h3><%= t('nodes.sectionUdp') %> (<%= t('nodes.optionalSuffix') %>)</h3>
                 <small class="section-hint"><%- renderDocsIcon('udp') %><%= t('nodes.sectionUdpHint') %></small>
                 <label class="checkbox-label">
@@ -269,7 +281,7 @@
             </div>
 
             <%# ========== 12. Hysteria: QUIC Parameters ========== %>
-            <div class="form-section hysteria-only" id="hysteriaQuicSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section" id="hysteriaQuicSection">
                 <h3><%= t('nodes.sectionQuic') %> (<%= t('nodes.optionalSuffix') %>)</h3>
                 <small class="section-hint">
                     <%- renderDocsIcon('quic') %>
@@ -320,7 +332,7 @@
             </div>
 
             <%# ========== 13. Hysteria: Resolver ========== %>
-            <div class="form-section hysteria-only" id="hysteriaResolverSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
+            <div class="form-section" id="hysteriaResolverSection">
                 <h3><%= t('nodes.sectionResolver') %> (<%= t('nodes.optionalSuffix') %>)</h3>
                 <small class="section-hint"><%- renderDocsIcon('resolver') %><%= t('nodes.sectionResolverHint') %></small>
                 <label class="checkbox-label">
@@ -418,3 +430,4 @@
                     </div>
                 </div>
             </div>
+            </details>

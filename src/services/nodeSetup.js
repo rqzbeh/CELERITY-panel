@@ -100,12 +100,109 @@ function getPanelCertificates(domain) {
 const INSTALL_SCRIPT = `#!/bin/bash
 set -e
 
+echo "=== [0/5] System diagnostics ==="
+echo "--- OS info ---"
+cat /etc/os-release 2>/dev/null | grep -E "^(NAME|VERSION|ID)=" || echo "(os-release not found)"
+uname -a 2>/dev/null || true
+echo "--- Disk space ---"
+df -h / 2>/dev/null || true
+echo "--- Memory ---"
+free -h 2>/dev/null || true
+echo "--- Network interfaces ---"
+ip addr show 2>/dev/null | grep -E "^[0-9]+:|inet " || ifconfig 2>/dev/null | grep -E "^[a-z]|inet " || true
+echo "--- Checking required tools ---"
+
+MISSING_TOOLS=""
+
+if command -v curl &> /dev/null; then
+    echo "OK: curl $(curl --version 2>&1 | head -1)"
+else
+    echo "MISSING: curl is not installed — trying to install..."
+    if command -v apt-get &> /dev/null; then
+        apt-get update -qq && apt-get install -y curl
+        if command -v curl &> /dev/null; then
+            echo "Done: curl installed via apt-get"
+        else
+            echo "ERROR: Failed to install curl via apt-get"
+            MISSING_TOOLS="$MISSING_TOOLS curl"
+        fi
+    elif command -v yum &> /dev/null; then
+        yum install -y curl
+        if command -v curl &> /dev/null; then
+            echo "Done: curl installed via yum"
+        else
+            echo "ERROR: Failed to install curl via yum"
+            MISSING_TOOLS="$MISSING_TOOLS curl"
+        fi
+    elif command -v dnf &> /dev/null; then
+        dnf install -y curl
+        if command -v curl &> /dev/null; then
+            echo "Done: curl installed via dnf"
+        else
+            echo "ERROR: Failed to install curl via dnf"
+            MISSING_TOOLS="$MISSING_TOOLS curl"
+        fi
+    else
+        echo "ERROR: No package manager found (apt-get/yum/dnf). Cannot install curl."
+        MISSING_TOOLS="$MISSING_TOOLS curl"
+    fi
+fi
+
+if command -v bash &> /dev/null; then
+    echo "OK: bash $(bash --version 2>&1 | head -1)"
+else
+    echo "ERROR: bash is not available — this is very unusual"
+    MISSING_TOOLS="$MISSING_TOOLS bash"
+fi
+
+if command -v systemctl &> /dev/null; then
+    echo "OK: systemctl available ($(systemctl --version 2>&1 | head -1))"
+else
+    echo "WARNING: systemctl not found — service management may fail"
+fi
+
+if command -v openssl &> /dev/null; then
+    echo "OK: openssl $(openssl version 2>&1)"
+else
+    echo "WARNING: openssl not installed (needed for self-signed cert)"
+fi
+
+if [ -n "$MISSING_TOOLS" ]; then
+    echo "ERROR: Required tools are missing:$MISSING_TOOLS"
+    echo "Cannot continue setup. Please install missing tools and try again."
+    exit 1
+fi
+
+echo "--- Checking connectivity ---"
+if curl -s --max-time 5 https://get.hy2.sh/ -o /dev/null -w "HTTPS connectivity: HTTP %{http_code}\\n"; then
+    echo "OK: HTTPS connectivity confirmed"
+else
+    echo "WARNING: Could not reach get.hy2.sh — internet access may be limited"
+fi
+
 echo "=== [1/5] Checking Hysteria installation ==="
 
 if ! command -v hysteria &> /dev/null; then
     echo "Hysteria not found. Installing..."
-    bash <(curl -fsSL https://get.hy2.sh/)
-    echo "Done: Hysteria installed"
+    echo "Running: bash <(curl -fsSL https://get.hy2.sh/)"
+    INSTALL_EXIT=0
+    bash <(curl -fsSL https://get.hy2.sh/) || INSTALL_EXIT=$?
+    if [ "$INSTALL_EXIT" -ne 0 ]; then
+        echo "WARNING: Install script exited with code $INSTALL_EXIT"
+    fi
+    if command -v hysteria &> /dev/null; then
+        echo "Done: Hysteria installed successfully"
+    else
+        echo "ERROR: Hysteria binary not found after installation script"
+        echo "Install script exit code: $INSTALL_EXIT"
+        echo "Checking common paths:"
+        ls -la /usr/local/bin/hysteria 2>/dev/null || echo "  /usr/local/bin/hysteria — not found"
+        ls -la /usr/bin/hysteria 2>/dev/null || echo "  /usr/bin/hysteria — not found"
+        echo "Checking PATH:"
+        echo "  PATH=$PATH"
+        which hysteria 2>/dev/null || echo "  which hysteria — not found"
+        exit 1
+    fi
 else
     echo "Done: Hysteria already installed"
 fi
@@ -335,14 +432,18 @@ async function setupNode(node, options = {}) {
         log('SSH connected');
         
         if (installHysteria) {
-            log('Installing Hysteria...');
+            log('Running system diagnostics and installing Hysteria...');
             const installResult = await execSSH(conn, INSTALL_SCRIPT);
             logs.push(installResult.output);
             
             if (!installResult.success) {
-                throw new Error(`Hysteria installation failed: ${installResult.error}`);
+                log(`ERROR: Installation script failed (exit code: ${installResult.code})`);
+                log('Last output lines:');
+                const lastLines = (installResult.output || '').split('\n').slice(-10).join('\n');
+                log(lastLines);
+                throw new Error(`Hysteria installation failed (exit code ${installResult.code}): ${installResult.error}`);
             }
-            log('Hysteria installed');
+            log('System diagnostics passed, Hysteria installed');
         }
         
         // Determine TLS mode: same-VPS (copy panel certs), ACME, or self-signed
