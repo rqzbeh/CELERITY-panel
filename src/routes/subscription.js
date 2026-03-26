@@ -148,17 +148,17 @@ async function getActiveNodes(user) {
         logger.warn(`[Sub] NO NODES for user ${user.userId}! Check: active=true, groups match`);
     }
     
-    // Сортировка: балансировка по нагрузке или по rankingCoefficient
+    // Sort nodes: by load percentage when LB is enabled, otherwise by rankingCoefficient
     if (lb.enabled) {
-        // Сортируем по % загрузки (наименее загруженные первыми)
         nodes.sort((a, b) => {
             const loadA = a.maxOnlineUsers ? a.onlineUsers / a.maxOnlineUsers : 0;
             const loadB = b.maxOnlineUsers ? b.onlineUsers / b.maxOnlineUsers : 0;
-            // При равной загрузке — по rankingCoefficient
-            if (Math.abs(loadA - loadB) < 0.1) {
-                return (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1);
-            }
-            return loadA - loadB;
+            // Primary: load percentage (lowest first)
+            if (loadA !== loadB) return loadA - loadB;
+            // Secondary: absolute online count for nodes without a limit (lowest first)
+            if (a.onlineUsers !== b.onlineUsers) return a.onlineUsers - b.onlineUsers;
+            // Tertiary: explicit priority ranking
+            return (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1);
         });
         logger.debug(`[Sub] Load balancing applied`);
     } else {

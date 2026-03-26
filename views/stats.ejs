@@ -90,6 +90,10 @@
     <div class="card-header">
         <h2><i class="ti ti-server"></i> <%= t('stats.nodesUsage') %></h2>
         <div class="header-actions">
+            <select id="nodeMetric" class="filter-select" onchange="updateNodesChartMetric()">
+                <option value="online"><%= t('stats.online') || 'Online' %></option>
+                <option value="traffic"><%= t('stats.traffic') || 'Traffic' %></option>
+            </select>
             <select id="nodeSelector" class="filter-select">
                 <option value="all"><%= t('stats.allNodes') %></option>
             </select>
@@ -114,11 +118,13 @@
                         <th><%= t('stats.currentOnline') %></th>
                         <th><%= t('stats.avgOnline') %></th>
                         <th><%= t('stats.peakOnline') %></th>
+                        <th>TX</th>
+                        <th>RX</th>
                         <th><%= t('common.status') %></th>
                     </tr>
                 </thead>
                 <tbody id="nodesTableBody">
-                    <tr><td colspan="5" class="text-center text-muted"><%= t('common.loading') %></td></tr>
+                    <tr><td colspan="7" class="text-center text-muted"><%= t('common.loading') %></td></tr>
                 </tbody>
             </table>
         </div>
@@ -294,6 +300,9 @@ const i18n = {
     noData: <%- JSON.stringify(t('stats.noData')) %>,
     hourChange: <%- JSON.stringify(t('stats.hourChange')) %>,
 };
+
+// Last fetched nodes data -- stored so metric toggle doesn't require a refetch
+let _lastNodesData = null;
 
 // Charts instances
 let onlineChart = null;
@@ -478,6 +487,9 @@ async function loadData(period) {
             fetch(`/panel/stats/api/nodes?period=${period}`, { credentials: 'include' }).then(r => r.json()),
         ]);
         
+        // Cache nodes response so metric toggle re-renders without a refetch
+        _lastNodesData = nodesData;
+
         updateOnlineChart(onlineData);
         updateTrafficChart(trafficData);
         updateNodesChart(nodesData);
@@ -535,18 +547,28 @@ function updateNodesChart(data) {
         return;
     }
     
+    const metric = document.getElementById('nodeMetric')?.value || 'online';
+    
     nodesChart.data.labels = data.labels.map(l => new Date(l));
     
-    // Create datasets for each node
+    // Build datasets based on selected metric
     nodesChart.data.datasets = data.nodes.map((node, i) => ({
         label: node.name,
-        data: node.data.map(d => d.online),
+        data: node.data.map(d => metric === 'traffic' ? (d.tx || 0) + (d.rx || 0) : d.online),
         borderColor: colors.nodeColors[i % colors.nodeColors.length],
         backgroundColor: 'transparent',
         tension: 0.4,
         pointRadius: 0,
         pointHoverRadius: 4,
     }));
+
+    // Adjust y-axis formatter for traffic mode
+    nodesChart.options.scales.y.ticks = metric === 'traffic'
+        ? { callback: v => formatBytes(v) }
+        : {};
+    nodesChart.options.plugins.tooltip.callbacks.label = metric === 'traffic'
+        ? ctx => `${ctx.dataset.label}: ${formatBytes(ctx.raw)}`
+        : ctx => `${ctx.dataset.label}: ${ctx.raw}`;
     
     nodesChart.update('none');
     
@@ -558,11 +580,19 @@ function updateNodesChart(data) {
     });
 }
 
+// Re-render chart when metric toggle changes -- no network request
+function updateNodesChartMetric() {
+    if (_lastNodesData) {
+        updateNodesChart(_lastNodesData);
+        updateNodesTable(_lastNodesData);
+    }
+}
+
 function updateNodesTable(data) {
     const tbody = document.getElementById('nodesTableBody');
     
     if (!data.nodes || data.nodes.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">${i18n.noData}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">${i18n.noData}</td></tr>`;
         return;
     }
     
@@ -572,6 +602,9 @@ function updateNodesTable(data) {
         const avg = Math.round(onlineValues.reduce((a, b) => a + b, 0) / onlineValues.length);
         const peak = Math.max(...onlineValues);
         const lastStatus = node.data[node.data.length - 1]?.status || 'offline';
+        // Totals come from pre-aggregated fields; fall back to summing data array for old snapshots
+        const totalTx = node.totalTx != null ? node.totalTx : node.data.reduce((s, d) => s + (d.tx || 0), 0);
+        const totalRx = node.totalRx != null ? node.totalRx : node.data.reduce((s, d) => s + (d.rx || 0), 0);
         
         return `
             <tr>
@@ -579,6 +612,8 @@ function updateNodesTable(data) {
                 <td class="value-highlight">${current}</td>
                 <td>${avg}</td>
                 <td>${peak}</td>
+                <td style="color:var(--success)">${formatBytes(totalTx)}</td>
+                <td style="color:var(--accent)">${formatBytes(totalRx)}</td>
                 <td>
                     <span class="status-indicator status-${lastStatus}">
                         <span class="status-dot"></span>

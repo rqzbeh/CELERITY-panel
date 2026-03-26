@@ -78,12 +78,15 @@ class StatsService {
                 const currTx = node.traffic?.tx || 0;
                 const currRx = node.traffic?.rx || 0;
                 
+                // Declare deltas at node scope so they are available for the snapshot push below
+                let deltaTx = 0, deltaRx = 0;
+
                 // Only count delta if we have previous values (skip first run after restart)
                 if (previousTraffic.has(nodeId)) {
                     const prev = previousTraffic.get(nodeId);
-                    // Delta calculation: if current >= prev, use delta; if reset detected, use current
-                    const deltaTx = currTx >= prev.tx ? currTx - prev.tx : currTx;
-                    const deltaRx = currRx >= prev.rx ? currRx - prev.rx : currRx;
+                    // If current >= prev use the difference; if counter reset use current as delta
+                    deltaTx = currTx >= prev.tx ? currTx - prev.tx : currTx;
+                    deltaRx = currRx >= prev.rx ? currRx - prev.rx : currRx;
                     trafficTx += deltaTx;
                     trafficRx += deltaRx;
                 }
@@ -99,6 +102,8 @@ class StatsService {
                     n: displayName,
                     o: node.onlineUsers || 0,
                     s: node.status,
+                    t: deltaTx,
+                    r: deltaRx,
                 });
             }
             
@@ -144,6 +149,27 @@ class StatsService {
         }
     }
 
+    // Merge multiple snapshot node arrays: sum t/r deltas, keep last o/s per node
+    _mergeNodeArrays(allArrays) {
+        const map = new Map();
+        for (const arr of allArrays) {
+            if (!arr) continue;
+            for (const n of arr) {
+                const key = n.i || n.n;
+                if (!map.has(key)) {
+                    map.set(key, { i: n.i, n: n.n, o: n.o, s: n.s, t: 0, r: 0 });
+                }
+                const entry = map.get(key);
+                entry.t += n.t || 0;
+                entry.r += n.r || 0;
+                // Last snapshot wins for point-in-time fields
+                entry.o = n.o;
+                entry.s = n.s;
+            }
+        }
+        return Array.from(map.values());
+    }
+
     async saveDailySnapshot() {
         try {
             const currentHour = this.roundToHour(new Date());
@@ -171,7 +197,7 @@ class StatsService {
                         lastUsers: { $last: '$users' },
                         lastActiveUsers: { $last: '$activeUsers' },
                         lastNodesTotal: { $last: '$nodesTotal' },
-                        lastNodes: { $last: '$nodes' },
+                        allNodesArrays: { $push: '$nodes' },
                         count: { $sum: 1 }
                     }
                 }
@@ -192,7 +218,7 @@ class StatsService {
                     rx: data.totalRx,
                     nodesOn: Math.round(data.avgNodesOn),
                     nodesTotal: data.lastNodesTotal,
-                    nodes: data.lastNodes,
+                    nodes: this._mergeNodeArrays(data.allNodesArrays),
                 });
             }
             
@@ -228,7 +254,7 @@ class StatsService {
                         lastUsers: { $last: '$users' },
                         lastActiveUsers: { $last: '$activeUsers' },
                         lastNodesTotal: { $last: '$nodesTotal' },
-                        lastNodes: { $last: '$nodes' },
+                        allNodesArrays: { $push: '$nodes' },
                         count: { $sum: 1 }
                     }
                 }
@@ -245,7 +271,7 @@ class StatsService {
                 rx: data.totalRx,
                 nodesOn: Math.round(data.avgNodesOn),
                 nodesTotal: data.lastNodesTotal,
-                nodes: data.lastNodes,
+                nodes: this._mergeNodeArrays(data.allNodesArrays),
             });
             
             logger.info(`[Stats] Monthly snapshot saved: ${currentDay.toISOString()}`);
@@ -417,13 +443,19 @@ class StatsService {
             for (const node of snapshot.nodes) {
                 const nodeKey = node.i || node.n;
                 if (!nodesMap.has(nodeKey)) {
-                    nodesMap.set(nodeKey, { id: nodeKey, name: node.n, data: [] });
+                    // totalTx/totalRx accumulate bytes across the selected period for the summary table
+                    nodesMap.set(nodeKey, { id: nodeKey, name: node.n, data: [], totalTx: 0, totalRx: 0 });
                 }
-                nodesMap.get(nodeKey).data.push({
+                const entry = nodesMap.get(nodeKey);
+                entry.data.push({
                     timestamp: snapshot.ts,
                     online: node.o,
                     status: node.s,
+                    tx: node.t || 0,
+                    rx: node.r || 0,
                 });
+                entry.totalTx += node.t || 0;
+                entry.totalRx += node.r || 0;
             }
         }
         

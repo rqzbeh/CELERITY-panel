@@ -26,6 +26,12 @@
                 <option value="<%= group._id %>"><%= group.name %></option>
                 <% }); } %>
             </select>
+            <select id="sortNodes" class="filter-select" onchange="sortNodesTable()">
+                <option value="ranking"><%= t('nodes.sortByPriority') %></option>
+                <option value="name"><%= t('nodes.sortByName') %></option>
+                <option value="online"><%= t('nodes.sortByOnline') %></option>
+                <option value="status"><%= t('nodes.sortByStatus') %></option>
+            </select>
             <span id="resultsCount" class="filter-count"></span>
         </div>
     </div>
@@ -57,6 +63,7 @@
             <table class="table" id="nodesTable">
                 <thead>
                     <tr>
+                        <th style="width:28px"></th>
                         <th><%= t('common.name') %></th>
                         <th><%= t('common.server') %></th>
                         <th><%= t('common.ports') %></th>
@@ -70,7 +77,7 @@
                 <tbody>
                     <% if (nodes.length === 0) { %>
                     <tr>
-                        <td colspan="8" class="text-center text-muted">
+                        <td colspan="9" class="text-center text-muted">
                             <div class="empty-state">
                                 <span class="empty-icon"><i class="ti ti-server"></i></span>
                                 <p><%= t('nodes.noNodes') %></p>
@@ -82,7 +89,15 @@
                     <% nodes.forEach(node => { 
                         const groupIds = (node.groups || []).map(g => g._id?.toString() || g.toString()).join(',');
                     %>
-                    <tr class="node-row" data-status="<%= node.status %>" data-groups="<%= groupIds %>" data-active="<%= node.active %>">
+                    <tr class="node-row"
+                        data-status="<%= node.status %>"
+                        data-groups="<%= groupIds %>"
+                        data-active="<%= node.active %>"
+                        data-id="<%= node._id %>"
+                        data-name="<%= (node.name || '').replace(/"/g, '&quot;') %>"
+                        data-ranking="<%= node.rankingCoefficient || 1 %>"
+                        data-online="<%= node.onlineUsers || 0 %>">
+                        <td class="drag-handle" title="Drag to reorder"><i class="ti ti-grip-vertical" style="color:var(--text-muted);cursor:grab"></i></td>
                         <td>
                             <div class="node-name-cell">
                                 <% if (node.flag) { %><span class="node-flag"><%= node.flag %></span><% } %>
@@ -175,7 +190,12 @@
             <% nodes.forEach(node => { 
                 const groupIds = (node.groups || []).map(g => g._id?.toString() || g.toString()).join(',');
             %>
-                <div class="mobile-node-card node-row-mobile" data-status="<%= node.status %>" data-groups="<%= groupIds %>">
+                <div class="mobile-node-card node-row-mobile"
+                     data-status="<%= node.status %>"
+                     data-groups="<%= groupIds %>"
+                     data-name="<%= (node.name || '').replace(/"/g, '&quot;') %>"
+                     data-ranking="<%= node.rankingCoefficient || 1 %>"
+                     data-online="<%= node.onlineUsers || 0 %>">
                     <div class="mobile-node-header">
                         <div class="mobile-node-title">
                             <% if (node.flag) { %><span><%= node.flag %></span><% } %>
@@ -646,6 +666,10 @@
 .badge-cascade.portal { background: #6366f120; border: 1px solid #6366f1; color: #818cf8; }
 .badge-cascade.bridge { background: #f59e0b20; border: 1px solid #f59e0b; color: #fbbf24; }
 .badge-cascade.relay  { background: #8b5cf620; border: 1px solid #8b5cf6; color: #a78bfa; }
+/* Drag-and-drop ghost row */
+.sortable-ghost { opacity: 0.4; background: var(--accent, #6366f1) !important; }
+.drag-handle { cursor: grab; user-select: none; }
+.drag-handle:active { cursor: grabbing; }
 </style>
 
 <script>
@@ -663,7 +687,7 @@ function applyFilters() {
     
     let visibleCount = 0;
     
-    // Filter desktop table
+    // Filter desktop table rows
     document.querySelectorAll('.node-row').forEach(row => {
         const rowStatus = row.dataset.status;
         const rowGroups = row.dataset.groups || '';
@@ -690,6 +714,52 @@ function applyFilters() {
     
     // Update counter
     document.getElementById('resultsCount').textContent = i18n.total + ': ' + visibleCount;
+}
+
+// Map status strings to sort order (online first, then error, then offline)
+function statusSortOrder(s) {
+    return s === 'online' ? 0 : s === 'error' ? 1 : 2;
+}
+
+function sortNodesTable() {
+    const key = document.getElementById('sortNodes').value;
+
+    const comparators = {
+        ranking: (a, b) => (parseFloat(a.dataset.ranking) || 1) - (parseFloat(b.dataset.ranking) || 1),
+        name:    (a, b) => (a.dataset.name || '').localeCompare(b.dataset.name || ''),
+        online:  (a, b) => (parseInt(b.dataset.online) || 0) - (parseInt(a.dataset.online) || 0),
+        status:  (a, b) => statusSortOrder(a.dataset.status) - statusSortOrder(b.dataset.status),
+    };
+    const cmp = comparators[key] || comparators.ranking;
+
+    // Sort desktop table rows using a DocumentFragment for a single reflow
+    const tbody = document.querySelector('#nodesTable tbody');
+    if (tbody) {
+        const rows = Array.from(tbody.querySelectorAll('.node-row'));
+        rows.sort(cmp);
+        const frag = document.createDocumentFragment();
+        rows.forEach(r => frag.appendChild(r));
+        tbody.appendChild(frag);
+    }
+
+    // Mirror sort for mobile cards
+    const mobileList = document.querySelector('.mobile-nodes-list');
+    if (mobileList) {
+        const cards = Array.from(mobileList.querySelectorAll('.node-row-mobile'));
+        cards.sort(cmp);
+        const frag = document.createDocumentFragment();
+        cards.forEach(c => frag.appendChild(c));
+        mobileList.appendChild(frag);
+    }
+
+    // Disable drag-and-drop when not sorting by priority — positions would conflict
+    if (window._nodesSortable) {
+        window._nodesSortable.option('disabled', key !== 'ranking');
+        document.querySelectorAll('.drag-handle').forEach(h => {
+            h.style.opacity = key === 'ranking' ? '' : '0.3';
+            h.style.cursor = key === 'ranking' ? 'grab' : 'default';
+        });
+    }
 }
 
 async function restartNode(id) {
@@ -897,4 +967,67 @@ function loadNetworkScripts() {
 if (_restoreNetworkView) {
     switchNodesView('network');
 }
+
+// ==================== DRAG-AND-DROP REORDER ====================
+
+(function initDragAndDrop() {
+    const tbody = document.querySelector('#nodesTable tbody');
+    if (!tbody) return;
+
+    let sortableInstance = null;
+
+    // Load vendored SortableJS and initialise once ready
+    const script = document.createElement('script');
+    script.src = '/js/vendor/Sortable.min.js';
+    script.onload = function () {
+        sortableInstance = new Sortable(tbody, {
+            handle: '.drag-handle',
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            // Skip filtered-out (hidden) rows — they must not participate in drag
+            filter: function (evt, el) {
+                return el.style.display === 'none';
+            },
+            onMove: function (evt) {
+                // Prevent dropping next to a hidden row
+                if (evt.related && evt.related.style.display === 'none') return false;
+            },
+            onEnd: async function () {
+                // Only send visible rows — hidden rows keep their old ranking
+                const rows = Array.from(tbody.querySelectorAll('.node-row'))
+                    .filter(r => r.style.display !== 'none');
+                const order = rows.map((r, i) => ({
+                    id: r.dataset.id,
+                    position: i + 1,
+                }));
+
+                try {
+                    const res = await fetch('/panel/nodes/reorder', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ order }),
+                    });
+                    if (!res.ok) throw new Error('Reorder failed');
+                    rows.forEach((r, i) => { r.dataset.ranking = i + 1; });
+                } catch (e) {
+                    console.error('[Nodes] Reorder error:', e);
+                }
+            },
+        });
+
+        // Disable drag when sort is not by priority (positions would conflict)
+        window._nodesSortable = sortableInstance;
+    };
+    document.body.appendChild(script);
+
+    <% if (loadBalancingEnabled) { %>
+    // When load balancing is on, drag sets tiebreaker priority only
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.style.cssText = 'padding:6px 16px 2px;font-size:12px;color:var(--text-muted)';
+    hint.innerHTML = '<i class="ti ti-info-circle"></i> Load balancing is active — drag sets tiebreaker priority when nodes have equal load.';
+    const tableWrapper = document.querySelector('#nodesTable')?.closest('.table-wrapper');
+    if (tableWrapper) tableWrapper.insertAdjacentElement('beforebegin', hint);
+    <% } %>
+})();
 </script>
