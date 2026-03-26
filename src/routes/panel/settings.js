@@ -66,7 +66,7 @@ router.get('/settings', async (req, res) => {
 // POST /settings - Save settings
 router.post('/settings', async (req, res) => {
     try {
-        const { reloadSettings } = require('../../index');
+        const { reloadSettings } = require('../../../index');
         
         const updates = {
             'loadBalancing.enabled': req.body['loadBalancing.enabled'] === 'on',
