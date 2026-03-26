@@ -678,7 +678,10 @@ const i18n = {
     deleteError: <%- JSON.stringify(t("nodes.deleteError")) %>,
     restartSuccess: <%- JSON.stringify(t("nodes.restartSuccess")) %>,
     restartFailed: <%- JSON.stringify(t("nodes.restartFailed")) %>,
-    total: <%- JSON.stringify(t("common.total")) %>
+    total: <%- JSON.stringify(t("common.total")) %>,
+    reorderSaved: <%- JSON.stringify(t("nodes.reorderSaved")) %>,
+    reorderFailed: <%- JSON.stringify(t("nodes.reorderFailed")) %>,
+    lbHint: <%- JSON.stringify(t("nodes.lbDragHint")) %>
 };
 
 function applyFilters() {
@@ -1013,10 +1016,10 @@ if (_restoreNetworkView) {
                     try { json = JSON.parse(text); } catch { throw new Error('Not JSON: ' + text.substring(0, 120)); }
                     if (!res.ok || !json.success) throw new Error(json.error || 'Reorder failed');
                     rows.forEach((r, i) => { r.dataset.ranking = i + 1; });
-                    showToast('Saved: ' + json.matched + ' matched, ' + json.modified + ' modified');
+                    showToast(i18n.reorderSaved || 'Order saved');
                 } catch (e) {
                     console.error('[Nodes] Reorder error:', e);
-                    showToast(e.message || 'Reorder failed', 'error');
+                    showToast(e.message || i18n.reorderFailed, 'error');
                 }
             },
         });
@@ -1027,11 +1030,10 @@ if (_restoreNetworkView) {
     document.body.appendChild(script);
 
     <% if (loadBalancingEnabled) { %>
-    // When load balancing is on, drag sets tiebreaker priority only
     const hint = document.createElement('div');
     hint.className = 'hint';
     hint.style.cssText = 'padding:6px 16px 2px;font-size:12px;color:var(--text-muted)';
-    hint.innerHTML = '<i class="ti ti-info-circle"></i> Load balancing is active — drag sets tiebreaker priority when nodes have equal load.';
+    hint.innerHTML = '<i class="ti ti-info-circle"></i> ' + i18n.lbHint;
     const tableWrapper = document.querySelector('#nodesTable')?.closest('.table-wrapper');
     if (tableWrapper) tableWrapper.insertAdjacentElement('beforebegin', hint);
     <% } %>

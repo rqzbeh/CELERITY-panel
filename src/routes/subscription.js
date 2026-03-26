@@ -162,9 +162,6 @@ async function getActiveNodes(user) {
         nodes.sort((a, b) => (a.rankingCoefficient || 1) - (b.rankingCoefficient || 1));
     }
 
-    // DEBUG: remove after confirming reorder works
-    logger.info(`[Sub] Node order for ${user.userId} (lb=${!!lb.enabled}): ${nodes.map(n => `${n.name}[rc=${n.rankingCoefficient},online=${n.onlineUsers}]`).join(', ')}`);
-    
     return nodes;
 }
 
