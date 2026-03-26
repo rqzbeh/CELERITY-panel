@@ -116,318 +116,307 @@
                 </div>
             </div>
 
-            <%# ========== 8. Hysteria: Protocol Sniffing ========== %>
-            <div class="form-section hysteria-only" id="hysteriaSniffSection" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
-                <h3><%= t('nodes.sectionSniff') %></h3>
-                <small class="section-hint">
-                    <%- renderDocsIcon('sniff') %>
-                    <%= t('nodes.sectionSniffHint') %>
-                </small>
-                <div class="form-group">
-                    <label class="checkbox-label">
-                        <input type="hidden" name="sniff.enable" value="0">
-                        <input type="checkbox" name="sniff.enable" <%= sniffBaseEnabled ? 'checked' : '' %>>
-                        <span class="checkbox-text"><%= t('nodes.sniffEnable') %></span>
-                    </label>
-                </div>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="sniffEnabled" name="sniff.enabled" <%= sniffAdvancedEnabled ? 'checked' : '' %> onchange="toggleSniffFields()">
-                    <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
-                </label>
-                <div class="optional-fields-wrap" id="sniffFieldsWrap" style="<%= sniffAdvancedEnabled ? '' : 'display:none' %>">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="sniff.rewriteDomain" <%= node?.sniff?.rewriteDomain ? 'checked' : '' %>>
-                                <span class="checkbox-text"><%= t('nodes.sniffRewriteDomain') %></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="sniffTimeout"><%= t('nodes.sniffTimeout') %></label>
-                            <input type="text" id="sniffTimeout" name="sniff.timeout" value="<%= node?.sniff?.timeout || '2s' %>" placeholder="2s">
-                        </div>
-                        <div class="form-group">
-                            <label for="sniffTcpPorts"><%= t('nodes.sniffTcpPorts') %></label>
-                            <input type="text" id="sniffTcpPorts" name="sniff.tcpPorts" value="<%= node?.sniff?.tcpPorts || '80,443,8000-9000' %>" placeholder="80,443,8000-9000">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="sniffUdpPorts"><%= t('nodes.sniffUdpPorts') %></label>
-                        <input type="text" id="sniffUdpPorts" name="sniff.udpPorts" value="<%= node?.sniff?.udpPorts || '443,80,53' %>" placeholder="443,80,53">
-                        <small><%= t('nodes.sniffPortsHint') %></small>
-                    </div>
-                </div>
-            </div>
-
             <%# ========== Advanced optional sections (collapsible) ========== %>
-            <%
-            const advancedSectionsOpen = !!(aclSectionEnabled || bandwidthEnabled || node?.speedTest || udpOptionsEnabled || quicSectionEnabled || node?.resolver?.enabled);
-            %>
             <details class="hysteria-only node-advanced-details" id="hysteriaAdvancedDetails"
-                     <%= advancedSectionsOpen ? 'open' : '' %>
                      style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
                 <summary class="node-advanced-summary">
                     <span><i class="ti ti-adjustments-horizontal"></i> <%= t('nodes.advancedSettings') %></span>
                     <i class="ti ti-chevron-down node-advanced-chevron"></i>
                 </summary>
 
-            <%# ========== 8. Hysteria: ACL Settings ========== %>
-            <div class="form-section" id="hysteriaAclSection">
-                <h3><%= t('nodes.sectionAcl') %></h3>
-                <small class="section-hint"><%- renderDocsIcon('acl') %><%= t('nodes.sectionAclHint') %></small>
-                <label class="checkbox-label">
-                    <input type="hidden" name="acl.enabled" value="0">
-                    <input type="checkbox" id="aclEnabled" name="acl.enabled" <%= aclSectionEnabled ? 'checked' : '' %> onchange="toggleAclFields()">
-                    <span class="checkbox-text"><%= t('nodes.enableAcl') %></span>
-                </label>
-
-                <div class="optional-fields-wrap" id="aclFieldsWrap" style="<%= aclSectionEnabled ? '' : 'display:none' %>">
-                    <div class="form-row">
-                        <div class="form-group" id="aclTypeGroup" style="<%= aclSectionEnabled && node?.acl?.type === 'file' ? '' : 'grid-column: 1 / -1;' %>">
-                            <label for="aclType"><%= t('nodes.aclType') %></label>
-                            <select id="aclType" name="acl.type" onchange="toggleAclTypeFields()">
-                                <option value="inline" <%= (node?.acl?.type || 'inline') === 'inline' ? 'selected' : '' %>>inline</option>
-                                <option value="file" <%= node?.acl?.type === 'file' ? 'selected' : '' %>>file</option>
-                            </select>
-                        </div>
-                        <div class="form-group" id="aclFileGroup" style="<%= aclSectionEnabled && node?.acl?.type === 'file' ? '' : 'display:none' %>">
-                            <label for="aclFile"><%= t('nodes.aclFile') %></label>
-                            <input type="text" id="aclFile" name="acl.file" value="<%= node?.acl?.file || '' %>" placeholder="/etc/hysteria/acl.txt">
-                        </div>
-                    </div>
-                    <div class="form-group" id="aclInlineRulesGroup" style="<%= aclSectionEnabled && (node?.acl?.type || 'inline') === 'inline' ? '' : 'display:none' %>">
-                        <label for="aclInlineRules"><%= t('nodes.aclInlineRules') %></label>
-                        <textarea id="aclInlineRules" name="acl.inlineRules" rows="8" class="code-textarea" placeholder="reject(geoip:cn)&#10;reject(geoip:private)"><%= aclInlineRulesValue %></textarea>
-                        <small><%= t('nodes.aclInlineRulesHint') %></small>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="aclGeoip"><%= t('nodes.aclGeoip') %></label>
-                            <input type="text" id="aclGeoip" name="acl.geoip" value="<%= node?.acl?.geoip || '' %>" placeholder="/etc/hysteria/geoip.dat">
-                        </div>
-                        <div class="form-group">
-                            <label for="aclGeosite"><%= t('nodes.aclGeosite') %></label>
-                            <input type="text" id="aclGeosite" name="acl.geosite" value="<%= node?.acl?.geosite || '' %>" placeholder="/etc/hysteria/geosite.dat">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="aclGeoUpdateInterval"><%= t('nodes.aclGeoUpdateInterval') %></label>
-                        <input type="text" id="aclGeoUpdateInterval" name="acl.geoUpdateInterval" value="<%= node?.acl?.geoUpdateInterval || '' %>" placeholder="168h">
-                    </div>
-                </div>
-            </div>
-
-            <%# ========== 9. Hysteria: Bandwidth ========== %>
-            <div class="form-section" id="hysteriaBandwidthSection">
-                <h3><%= t('nodes.sectionBandwidth') %> (<%= t('nodes.optionalSuffix') %>)</h3>
-                <small class="section-hint"><%- renderDocsIcon('bandwidth') %><%= t('nodes.sectionBandwidthHint') %></small>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="bandwidthEnabled" name="bandwidth.enabled" <%= bandwidthEnabled ? 'checked' : '' %> onchange="toggleBandwidthFields()">
-                    <span class="checkbox-text"><%= t('nodes.enableBandwidth') %></span>
-                </label>
-                <div class="optional-fields-wrap" id="bandwidthFieldsWrap" style="<%= bandwidthEnabled ? '' : 'display:none' %>">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="bandwidthUp"><%= t('nodes.bandwidthUp') %></label>
-                            <input type="text" id="bandwidthUp" name="bandwidth.up" value="<%= node?.bandwidth?.up || '' %>" placeholder="100 mbps">
-                        </div>
-                        <div class="form-group">
-                            <label for="bandwidthDown"><%= t('nodes.bandwidthDown') %></label>
-                            <input type="text" id="bandwidthDown" name="bandwidth.down" value="<%= node?.bandwidth?.down || '' %>" placeholder="100 mbps">
-                        </div>
-                    </div>
-                    <label class="checkbox-label">
-                        <input type="checkbox" name="ignoreClientBandwidth" <%= node?.ignoreClientBandwidth ? 'checked' : '' %>>
-                        <span class="checkbox-text"><%= t('nodes.ignoreClientBandwidth') %></span>
-                    </label>
-                </div>
-            </div>
-
-            <%# ========== 9. Hysteria: Speed Test ========== %>
-            <div class="form-section" id="hysteriaSpeedTestSection">
-                <h3><%= t('nodes.sectionSpeedTest') %> (<%= t('nodes.optionalSuffix') %>)</h3>
-                <small class="section-hint"><%- renderDocsIcon('speedTest') %><%= t('nodes.sectionSpeedTestHint') %></small>
-                <label class="checkbox-label">
-                    <input type="checkbox" name="speedTest" <%= node?.speedTest ? 'checked' : '' %>>
-                    <span class="checkbox-text"><%= t('nodes.speedTest') %></span>
-                </label>
-            </div>
-
-            <%# ========== 10. Hysteria: UDP ========== %>
-            <div class="form-section" id="hysteriaUdpSection">
-                <h3><%= t('nodes.sectionUdp') %> (<%= t('nodes.optionalSuffix') %>)</h3>
-                <small class="section-hint"><%- renderDocsIcon('udp') %><%= t('nodes.sectionUdpHint') %></small>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="udpOptionsEnabled" name="udp.options.enabled" <%= udpOptionsEnabled ? 'checked' : '' %> onchange="toggleUdpFields()">
-                    <span class="checkbox-text"><%= t('nodes.enableUdpTweaks') %></span>
-                </label>
-                <div class="optional-fields-wrap" id="udpFieldsWrap" style="<%= udpOptionsEnabled ? '' : 'display:none' %>">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="disableUDP" <%= node?.disableUDP ? 'checked' : '' %>>
-                                <span class="checkbox-text"><%= t('nodes.disableUdp') %></span>
-                            </label>
-                        </div>
-                        <div class="form-group">
-                            <label for="udpIdleTimeout"><%= t('nodes.udpIdleTimeout') %></label>
-                            <input type="text" id="udpIdleTimeout" name="udpIdleTimeout" value="<%= node?.udpIdleTimeout || '' %>" placeholder="60s">
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <%# ========== 12. Hysteria: QUIC Parameters ========== %>
-            <div class="form-section" id="hysteriaQuicSection">
-                <h3><%= t('nodes.sectionQuic') %> (<%= t('nodes.optionalSuffix') %>)</h3>
-                <small class="section-hint">
-                    <%- renderDocsIcon('quic') %>
-                    <%= t('nodes.sectionQuicHint') %>
-                </small>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="quicEnabled" name="quic.enabled" <%= quicSectionEnabled ? 'checked' : '' %> onchange="toggleQuicFields()">
-                    <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
-                </label>
-                <div class="optional-fields-wrap" id="quicFieldsWrap" style="<%= quicSectionEnabled ? '' : 'display:none' %>">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="quicInitStreamReceiveWindow"><%= t('nodes.quicInitStreamReceiveWindow') %></label>
-                            <input type="number" id="quicInitStreamReceiveWindow" name="quic.initStreamReceiveWindow" value="<%= node?.quic?.initStreamReceiveWindow || 8388608 %>" min="1">
-                        </div>
-                        <div class="form-group">
-                            <label for="quicMaxStreamReceiveWindow"><%= t('nodes.quicMaxStreamReceiveWindow') %></label>
-                            <input type="number" id="quicMaxStreamReceiveWindow" name="quic.maxStreamReceiveWindow" value="<%= node?.quic?.maxStreamReceiveWindow || 8388608 %>" min="1">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="quicInitConnReceiveWindow"><%= t('nodes.quicInitConnReceiveWindow') %></label>
-                            <input type="number" id="quicInitConnReceiveWindow" name="quic.initConnReceiveWindow" value="<%= node?.quic?.initConnReceiveWindow || 20971520 %>" min="1">
-                        </div>
-                        <div class="form-group">
-                            <label for="quicMaxConnReceiveWindow"><%= t('nodes.quicMaxConnReceiveWindow') %></label>
-                            <input type="number" id="quicMaxConnReceiveWindow" name="quic.maxConnReceiveWindow" value="<%= node?.quic?.maxConnReceiveWindow || 20971520 %>" min="1">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="quicMaxIdleTimeout"><%= t('nodes.quicMaxIdleTimeout') %></label>
-                            <input type="text" id="quicMaxIdleTimeout" name="quic.maxIdleTimeout" value="<%= node?.quic?.maxIdleTimeout || '60s' %>" placeholder="60s">
-                        </div>
-                        <div class="form-group">
-                            <label for="quicMaxIncomingStreams"><%= t('nodes.quicMaxIncomingStreams') %></label>
-                            <input type="number" id="quicMaxIncomingStreams" name="quic.maxIncomingStreams" value="<%= node?.quic?.maxIncomingStreams || 256 %>" min="1">
-                        </div>
-                    </div>
+                <%# ========== Protocol Sniffing ========== %>
+                <div class="form-section" id="hysteriaSniffSection">
+                    <h3><%= t('nodes.sectionSniff') %></h3>
+                    <small class="section-hint">
+                        <%- renderDocsIcon('sniff') %>
+                        <%= t('nodes.sectionSniffHint') %>
+                    </small>
                     <div class="form-group">
                         <label class="checkbox-label">
-                            <input type="checkbox" name="quic.disablePathMTUDiscovery" <%= node?.quic?.disablePathMTUDiscovery ? 'checked' : '' %>>
-                            <span class="checkbox-text"><%= t('nodes.quicDisablePathMtuDiscovery') %></span>
+                            <input type="hidden" name="sniff.enable" value="0">
+                            <input type="checkbox" name="sniff.enable" <%= sniffBaseEnabled ? 'checked' : '' %>>
+                            <span class="checkbox-text"><%= t('nodes.sniffEnable') %></span>
+                        </label>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="sniffEnabled" name="sniff.enabled" <%= sniffAdvancedEnabled ? 'checked' : '' %> onchange="toggleSniffFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
+                    </label>
+                    <div class="optional-fields-wrap" id="sniffFieldsWrap" style="<%= sniffAdvancedEnabled ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="sniff.rewriteDomain" <%= node?.sniff?.rewriteDomain ? 'checked' : '' %>>
+                                    <span class="checkbox-text"><%= t('nodes.sniffRewriteDomain') %></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="sniffTimeout"><%= t('nodes.sniffTimeout') %></label>
+                                <input type="text" id="sniffTimeout" name="sniff.timeout" value="<%= node?.sniff?.timeout || '2s' %>" placeholder="2s">
+                            </div>
+                            <div class="form-group">
+                                <label for="sniffTcpPorts"><%= t('nodes.sniffTcpPorts') %></label>
+                                <input type="text" id="sniffTcpPorts" name="sniff.tcpPorts" value="<%= node?.sniff?.tcpPorts || '80,443,8000-9000' %>" placeholder="80,443,8000-9000">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="sniffUdpPorts"><%= t('nodes.sniffUdpPorts') %></label>
+                            <input type="text" id="sniffUdpPorts" name="sniff.udpPorts" value="<%= node?.sniff?.udpPorts || '443,80,53' %>" placeholder="443,80,53">
+                            <small><%= t('nodes.sniffPortsHint') %></small>
+                        </div>
+                    </div>
+                </div>
+
+                <%# ========== ACL Settings ========== %>
+                <div class="form-section" id="hysteriaAclSection">
+                    <h3><%= t('nodes.sectionAcl') %></h3>
+                    <small class="section-hint"><%- renderDocsIcon('acl') %><%= t('nodes.sectionAclHint') %></small>
+                    <label class="checkbox-label">
+                        <input type="hidden" name="acl.enabled" value="0">
+                        <input type="checkbox" id="aclEnabled" name="acl.enabled" <%= aclSectionEnabled ? 'checked' : '' %> onchange="toggleAclFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableAcl') %></span>
+                    </label>
+                    <div class="optional-fields-wrap" id="aclFieldsWrap" style="<%= aclSectionEnabled ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group" id="aclTypeGroup" style="<%= aclSectionEnabled && node?.acl?.type === 'file' ? '' : 'grid-column: 1 / -1;' %>">
+                                <label for="aclType"><%= t('nodes.aclType') %></label>
+                                <select id="aclType" name="acl.type" onchange="toggleAclTypeFields()">
+                                    <option value="inline" <%= (node?.acl?.type || 'inline') === 'inline' ? 'selected' : '' %>>inline</option>
+                                    <option value="file" <%= node?.acl?.type === 'file' ? 'selected' : '' %>>file</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="aclFileGroup" style="<%= aclSectionEnabled && node?.acl?.type === 'file' ? '' : 'display:none' %>">
+                                <label for="aclFile"><%= t('nodes.aclFile') %></label>
+                                <input type="text" id="aclFile" name="acl.file" value="<%= node?.acl?.file || '' %>" placeholder="/etc/hysteria/acl.txt">
+                            </div>
+                        </div>
+                        <div class="form-group" id="aclInlineRulesGroup" style="<%= aclSectionEnabled && (node?.acl?.type || 'inline') === 'inline' ? '' : 'display:none' %>">
+                            <label for="aclInlineRules"><%= t('nodes.aclInlineRules') %></label>
+                            <textarea id="aclInlineRules" name="acl.inlineRules" rows="8" class="code-textarea" placeholder="reject(geoip:cn)&#10;reject(geoip:private)"><%= aclInlineRulesValue %></textarea>
+                            <small><%= t('nodes.aclInlineRulesHint') %></small>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="aclGeoip"><%= t('nodes.aclGeoip') %></label>
+                                <input type="text" id="aclGeoip" name="acl.geoip" value="<%= node?.acl?.geoip || '' %>" placeholder="/etc/hysteria/geoip.dat">
+                            </div>
+                            <div class="form-group">
+                                <label for="aclGeosite"><%= t('nodes.aclGeosite') %></label>
+                                <input type="text" id="aclGeosite" name="acl.geosite" value="<%= node?.acl?.geosite || '' %>" placeholder="/etc/hysteria/geosite.dat">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="aclGeoUpdateInterval"><%= t('nodes.aclGeoUpdateInterval') %></label>
+                            <input type="text" id="aclGeoUpdateInterval" name="acl.geoUpdateInterval" value="<%= node?.acl?.geoUpdateInterval || '' %>" placeholder="168h">
+                        </div>
+                    </div>
+                </div>
+
+                <%# ========== Bandwidth ========== %>
+                <div class="form-section" id="hysteriaBandwidthSection">
+                    <h3><%= t('nodes.sectionBandwidth') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                    <small class="section-hint"><%- renderDocsIcon('bandwidth') %><%= t('nodes.sectionBandwidthHint') %></small>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="bandwidthEnabled" name="bandwidth.enabled" <%= bandwidthEnabled ? 'checked' : '' %> onchange="toggleBandwidthFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableBandwidth') %></span>
+                    </label>
+                    <div class="optional-fields-wrap" id="bandwidthFieldsWrap" style="<%= bandwidthEnabled ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="bandwidthUp"><%= t('nodes.bandwidthUp') %></label>
+                                <input type="text" id="bandwidthUp" name="bandwidth.up" value="<%= node?.bandwidth?.up || '' %>" placeholder="100 mbps">
+                            </div>
+                            <div class="form-group">
+                                <label for="bandwidthDown"><%= t('nodes.bandwidthDown') %></label>
+                                <input type="text" id="bandwidthDown" name="bandwidth.down" value="<%= node?.bandwidth?.down || '' %>" placeholder="100 mbps">
+                            </div>
+                        </div>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="ignoreClientBandwidth" <%= node?.ignoreClientBandwidth ? 'checked' : '' %>>
+                            <span class="checkbox-text"><%= t('nodes.ignoreClientBandwidth') %></span>
                         </label>
                     </div>
                 </div>
-            </div>
 
-            <%# ========== 13. Hysteria: Resolver ========== %>
-            <div class="form-section" id="hysteriaResolverSection">
-                <h3><%= t('nodes.sectionResolver') %> (<%= t('nodes.optionalSuffix') %>)</h3>
-                <small class="section-hint"><%- renderDocsIcon('resolver') %><%= t('nodes.sectionResolverHint') %></small>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="resolverEnabled" name="resolver.enabled" <%= node?.resolver?.enabled ? 'checked' : '' %> onchange="toggleResolverFields()">
-                    <span class="checkbox-text"><%= t('nodes.resolverEnabled') %></span>
-                </label>
+                <%# ========== Speed Test ========== %>
+                <div class="form-section" id="hysteriaSpeedTestSection">
+                    <h3><%= t('nodes.sectionSpeedTest') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                    <small class="section-hint"><%- renderDocsIcon('speedTest') %><%= t('nodes.sectionSpeedTestHint') %></small>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="speedTest" <%= node?.speedTest ? 'checked' : '' %>>
+                        <span class="checkbox-text"><%= t('nodes.speedTest') %></span>
+                    </label>
+                </div>
 
-                <div class="optional-fields-wrap" id="resolverFieldsWrap" style="<%= node?.resolver?.enabled ? '' : 'display:none' %>">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="resolverType"><%= t('nodes.resolverType') %></label>
-                            <select id="resolverType" name="resolver.type" onchange="toggleResolverTypeFields()">
-                                <option value="udp" <%= (node?.resolver?.type || 'udp') === 'udp' ? 'selected' : '' %>>udp</option>
-                                <option value="tcp" <%= node?.resolver?.type === 'tcp' ? 'selected' : '' %>>tcp</option>
-                                <option value="tls" <%= node?.resolver?.type === 'tls' ? 'selected' : '' %>>tls</option>
-                                <option value="https" <%= node?.resolver?.type === 'https' ? 'selected' : '' %>>https</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div id="resolverUdpFields" style="<%= (node?.resolver?.type || 'udp') === 'udp' ? '' : 'display:none' %>">
+                <%# ========== UDP ========== %>
+                <div class="form-section" id="hysteriaUdpSection">
+                    <h3><%= t('nodes.sectionUdp') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                    <small class="section-hint"><%- renderDocsIcon('udp') %><%= t('nodes.sectionUdpHint') %></small>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="udpOptionsEnabled" name="udp.options.enabled" <%= udpOptionsEnabled ? 'checked' : '' %> onchange="toggleUdpFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableUdpTweaks') %></span>
+                    </label>
+                    <div class="optional-fields-wrap" id="udpFieldsWrap" style="<%= udpOptionsEnabled ? '' : 'display:none' %>">
                         <div class="form-row">
-                            <div class="form-group">
-                                <label for="resolverUdpAddr"><%= t('nodes.resolverAddr') %></label>
-                                <input type="text" id="resolverUdpAddr" name="resolver.udp.addr" value="<%= node?.resolver?.udpAddr || '8.8.4.4:53' %>" placeholder="8.8.4.4:53">
-                            </div>
-                            <div class="form-group">
-                                <label for="resolverUdpTimeout"><%= t('nodes.resolverTimeout') %></label>
-                                <input type="text" id="resolverUdpTimeout" name="resolver.udp.timeout" value="<%= node?.resolver?.udpTimeout || '4s' %>" placeholder="4s">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="resolverTcpFields" style="<%= node?.resolver?.type === 'tcp' ? '' : 'display:none' %>">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="resolverTcpAddr"><%= t('nodes.resolverAddr') %></label>
-                                <input type="text" id="resolverTcpAddr" name="resolver.tcp.addr" value="<%= node?.resolver?.tcpAddr || '8.8.8.8:53' %>" placeholder="8.8.8.8:53">
-                            </div>
-                            <div class="form-group">
-                                <label for="resolverTcpTimeout"><%= t('nodes.resolverTimeout') %></label>
-                                <input type="text" id="resolverTcpTimeout" name="resolver.tcp.timeout" value="<%= node?.resolver?.tcpTimeout || '4s' %>" placeholder="4s">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div id="resolverTlsFields" style="<%= node?.resolver?.type === 'tls' ? '' : 'display:none' %>">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="resolverTlsAddr"><%= t('nodes.resolverAddr') %></label>
-                                <input type="text" id="resolverTlsAddr" name="resolver.tls.addr" value="<%= node?.resolver?.tlsAddr || '1.1.1.1:853' %>" placeholder="1.1.1.1:853">
-                            </div>
-                            <div class="form-group">
-                                <label for="resolverTlsTimeout"><%= t('nodes.resolverTimeout') %></label>
-                                <input type="text" id="resolverTlsTimeout" name="resolver.tls.timeout" value="<%= node?.resolver?.tlsTimeout || '10s' %>" placeholder="10s">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="resolverTlsSni"><%= t('nodes.resolverSni') %></label>
-                                <input type="text" id="resolverTlsSni" name="resolver.tls.sni" value="<%= node?.resolver?.tlsSni || 'cloudflare-dns.com' %>" placeholder="cloudflare-dns.com">
-                            </div>
                             <div class="form-group">
                                 <label class="checkbox-label">
-                                    <input type="checkbox" name="resolver.tls.insecure" <%= node?.resolver?.tlsInsecure ? 'checked' : '' %>>
-                                    <span class="checkbox-text"><%= t('nodes.resolverInsecure') %></span>
+                                    <input type="checkbox" name="disableUDP" <%= node?.disableUDP ? 'checked' : '' %>>
+                                    <span class="checkbox-text"><%= t('nodes.disableUdp') %></span>
                                 </label>
                             </div>
-                        </div>
-                    </div>
-
-                    <div id="resolverHttpsFields" style="<%= node?.resolver?.type === 'https' ? '' : 'display:none' %>">
-                        <div class="form-row">
                             <div class="form-group">
-                                <label for="resolverHttpsAddr"><%= t('nodes.resolverAddr') %></label>
-                                <input type="text" id="resolverHttpsAddr" name="resolver.https.addr" value="<%= node?.resolver?.httpsAddr || '1.1.1.1:443' %>" placeholder="1.1.1.1:443">
-                            </div>
-                            <div class="form-group">
-                                <label for="resolverHttpsTimeout"><%= t('nodes.resolverTimeout') %></label>
-                                <input type="text" id="resolverHttpsTimeout" name="resolver.https.timeout" value="<%= node?.resolver?.httpsTimeout || '10s' %>" placeholder="10s">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="resolverHttpsSni"><%= t('nodes.resolverSni') %></label>
-                                <input type="text" id="resolverHttpsSni" name="resolver.https.sni" value="<%= node?.resolver?.httpsSni || 'cloudflare-dns.com' %>" placeholder="cloudflare-dns.com">
-                            </div>
-                            <div class="form-group">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" name="resolver.https.insecure" <%= node?.resolver?.httpsInsecure ? 'checked' : '' %>>
-                                    <span class="checkbox-text"><%= t('nodes.resolverInsecure') %></span>
-                                </label>
+                                <label for="udpIdleTimeout"><%= t('nodes.udpIdleTimeout') %></label>
+                                <input type="text" id="udpIdleTimeout" name="udpIdleTimeout" value="<%= node?.udpIdleTimeout || '' %>" placeholder="60s">
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
+
+                <%# ========== QUIC Parameters ========== %>
+                <div class="form-section" id="hysteriaQuicSection">
+                    <h3><%= t('nodes.sectionQuic') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                    <small class="section-hint">
+                        <%- renderDocsIcon('quic') %>
+                        <%= t('nodes.sectionQuicHint') %>
+                    </small>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="quicEnabled" name="quic.enabled" <%= quicSectionEnabled ? 'checked' : '' %> onchange="toggleQuicFields()">
+                        <span class="checkbox-text"><%= t('nodes.enableOptionalSection') %></span>
+                    </label>
+                    <div class="optional-fields-wrap" id="quicFieldsWrap" style="<%= quicSectionEnabled ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="quicInitStreamReceiveWindow"><%= t('nodes.quicInitStreamReceiveWindow') %></label>
+                                <input type="number" id="quicInitStreamReceiveWindow" name="quic.initStreamReceiveWindow" value="<%= node?.quic?.initStreamReceiveWindow || 8388608 %>" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="quicMaxStreamReceiveWindow"><%= t('nodes.quicMaxStreamReceiveWindow') %></label>
+                                <input type="number" id="quicMaxStreamReceiveWindow" name="quic.maxStreamReceiveWindow" value="<%= node?.quic?.maxStreamReceiveWindow || 8388608 %>" min="1">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="quicInitConnReceiveWindow"><%= t('nodes.quicInitConnReceiveWindow') %></label>
+                                <input type="number" id="quicInitConnReceiveWindow" name="quic.initConnReceiveWindow" value="<%= node?.quic?.initConnReceiveWindow || 20971520 %>" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="quicMaxConnReceiveWindow"><%= t('nodes.quicMaxConnReceiveWindow') %></label>
+                                <input type="number" id="quicMaxConnReceiveWindow" name="quic.maxConnReceiveWindow" value="<%= node?.quic?.maxConnReceiveWindow || 20971520 %>" min="1">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="quicMaxIdleTimeout"><%= t('nodes.quicMaxIdleTimeout') %></label>
+                                <input type="text" id="quicMaxIdleTimeout" name="quic.maxIdleTimeout" value="<%= node?.quic?.maxIdleTimeout || '60s' %>" placeholder="60s">
+                            </div>
+                            <div class="form-group">
+                                <label for="quicMaxIncomingStreams"><%= t('nodes.quicMaxIncomingStreams') %></label>
+                                <input type="number" id="quicMaxIncomingStreams" name="quic.maxIncomingStreams" value="<%= node?.quic?.maxIncomingStreams || 256 %>" min="1">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="quic.disablePathMTUDiscovery" <%= node?.quic?.disablePathMTUDiscovery ? 'checked' : '' %>>
+                                <span class="checkbox-text"><%= t('nodes.quicDisablePathMtuDiscovery') %></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <%# ========== Resolver ========== %>
+                <div class="form-section" id="hysteriaResolverSection">
+                    <h3><%= t('nodes.sectionResolver') %> (<%= t('nodes.optionalSuffix') %>)</h3>
+                    <small class="section-hint"><%- renderDocsIcon('resolver') %><%= t('nodes.sectionResolverHint') %></small>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="resolverEnabled" name="resolver.enabled" <%= node?.resolver?.enabled ? 'checked' : '' %> onchange="toggleResolverFields()">
+                        <span class="checkbox-text"><%= t('nodes.resolverEnabled') %></span>
+                    </label>
+                    <div class="optional-fields-wrap" id="resolverFieldsWrap" style="<%= node?.resolver?.enabled ? '' : 'display:none' %>">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="resolverType"><%= t('nodes.resolverType') %></label>
+                                <select id="resolverType" name="resolver.type" onchange="toggleResolverTypeFields()">
+                                    <option value="udp" <%= (node?.resolver?.type || 'udp') === 'udp' ? 'selected' : '' %>>udp</option>
+                                    <option value="tcp" <%= node?.resolver?.type === 'tcp' ? 'selected' : '' %>>tcp</option>
+                                    <option value="tls" <%= node?.resolver?.type === 'tls' ? 'selected' : '' %>>tls</option>
+                                    <option value="https" <%= node?.resolver?.type === 'https' ? 'selected' : '' %>>https</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="resolverUdpFields" style="<%= (node?.resolver?.type || 'udp') === 'udp' ? '' : 'display:none' %>">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="resolverUdpAddr"><%= t('nodes.resolverAddr') %></label>
+                                    <input type="text" id="resolverUdpAddr" name="resolver.udp.addr" value="<%= node?.resolver?.udpAddr || '8.8.4.4:53' %>" placeholder="8.8.4.4:53">
+                                </div>
+                                <div class="form-group">
+                                    <label for="resolverUdpTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                    <input type="text" id="resolverUdpTimeout" name="resolver.udp.timeout" value="<%= node?.resolver?.udpTimeout || '4s' %>" placeholder="4s">
+                                </div>
+                            </div>
+                        </div>
+                        <div id="resolverTcpFields" style="<%= node?.resolver?.type === 'tcp' ? '' : 'display:none' %>">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="resolverTcpAddr"><%= t('nodes.resolverAddr') %></label>
+                                    <input type="text" id="resolverTcpAddr" name="resolver.tcp.addr" value="<%= node?.resolver?.tcpAddr || '8.8.8.8:53' %>" placeholder="8.8.8.8:53">
+                                </div>
+                                <div class="form-group">
+                                    <label for="resolverTcpTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                    <input type="text" id="resolverTcpTimeout" name="resolver.tcp.timeout" value="<%= node?.resolver?.tcpTimeout || '4s' %>" placeholder="4s">
+                                </div>
+                            </div>
+                        </div>
+                        <div id="resolverTlsFields" style="<%= node?.resolver?.type === 'tls' ? '' : 'display:none' %>">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="resolverTlsAddr"><%= t('nodes.resolverAddr') %></label>
+                                    <input type="text" id="resolverTlsAddr" name="resolver.tls.addr" value="<%= node?.resolver?.tlsAddr || '1.1.1.1:853' %>" placeholder="1.1.1.1:853">
+                                </div>
+                                <div class="form-group">
+                                    <label for="resolverTlsTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                    <input type="text" id="resolverTlsTimeout" name="resolver.tls.timeout" value="<%= node?.resolver?.tlsTimeout || '10s' %>" placeholder="10s">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="resolverTlsSni"><%= t('nodes.resolverSni') %></label>
+                                    <input type="text" id="resolverTlsSni" name="resolver.tls.sni" value="<%= node?.resolver?.tlsSni || 'cloudflare-dns.com' %>" placeholder="cloudflare-dns.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" name="resolver.tls.insecure" <%= node?.resolver?.tlsInsecure ? 'checked' : '' %>>
+                                        <span class="checkbox-text"><%= t('nodes.resolverInsecure') %></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="resolverHttpsFields" style="<%= node?.resolver?.type === 'https' ? '' : 'display:none' %>">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="resolverHttpsAddr"><%= t('nodes.resolverAddr') %></label>
+                                    <input type="text" id="resolverHttpsAddr" name="resolver.https.addr" value="<%= node?.resolver?.httpsAddr || '1.1.1.1:443' %>" placeholder="1.1.1.1:443">
+                                </div>
+                                <div class="form-group">
+                                    <label for="resolverHttpsTimeout"><%= t('nodes.resolverTimeout') %></label>
+                                    <input type="text" id="resolverHttpsTimeout" name="resolver.https.timeout" value="<%= node?.resolver?.httpsTimeout || '10s' %>" placeholder="10s">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="resolverHttpsSni"><%= t('nodes.resolverSni') %></label>
+                                    <input type="text" id="resolverHttpsSni" name="resolver.https.sni" value="<%= node?.resolver?.httpsSni || 'cloudflare-dns.com' %>" placeholder="cloudflare-dns.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" name="resolver.https.insecure" <%= node?.resolver?.httpsInsecure ? 'checked' : '' %>>
+                                        <span class="checkbox-text"><%= t('nodes.resolverInsecure') %></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </details>
