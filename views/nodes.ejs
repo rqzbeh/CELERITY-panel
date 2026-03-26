@@ -63,7 +63,7 @@
             <table class="table" id="nodesTable">
                 <thead>
                     <tr>
-                        <th style="width:42px" title="<%= t('nodes.sortByPriority') %>">#</th>
+                        <th style="width:32px;text-align:center" title="<%= t('nodes.sortByPriority') %>">#</th>
                         <th><%= t('common.name') %></th>
                         <th><%= t('common.server') %></th>
                         <th><%= t('common.ports') %></th>
@@ -97,10 +97,7 @@
                         data-name="<%= (node.name || '').replace(/"/g, '&quot;') %>"
                         data-ranking="<%= node.rankingCoefficient || 1 %>"
                         data-online="<%= node.onlineUsers || 0 %>">
-                        <td class="drag-handle" title="<%= t('nodes.dragToReorder') %>">
-                            <span class="ranking-num"><%= node.rankingCoefficient || 1 %></span>
-                            <i class="ti ti-grip-vertical" style="color:var(--text-muted);cursor:grab"></i>
-                        </td>
+                        <td class="drag-handle" title="<%= t('nodes.dragToReorder') %>" style="text-align:center"><span class="ranking-num"><%= node.rankingCoefficient || 1 %></span><i class="ti ti-grip-vertical" style="color:var(--text-muted)"></i></td>
                         <td>
                             <div class="node-name-cell">
                                 <% if (node.flag) { %><span class="node-flag"><%= node.flag %></span><% } %>
@@ -671,9 +668,9 @@
 .badge-cascade.relay  { background: #8b5cf620; border: 1px solid #8b5cf6; color: #a78bfa; }
 /* Drag-and-drop ghost row */
 .sortable-ghost { opacity: 0.4; background: var(--accent, #6366f1) !important; }
-.drag-handle { cursor: grab; user-select: none; display: flex; align-items: center; gap: 2px; }
+.drag-handle { cursor: grab; user-select: none; white-space: nowrap; vertical-align: middle; }
 .drag-handle:active { cursor: grabbing; }
-.ranking-num { font-size: 11px; color: var(--text-muted); min-width: 14px; text-align: right; }
+.ranking-num { font-size: 11px; color: var(--text-muted); margin-right: 2px; }
 </style>
 
 <script>
