@@ -913,6 +913,14 @@ html {
     flex-direction: column;
     gap: 4px;
 }
+.node-name-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.node-name-row strong {
+    display: inline;
+}
 
 .node-ip {
     font-size: 12px;

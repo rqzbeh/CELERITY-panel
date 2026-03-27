@@ -68,9 +68,9 @@ router.get('/', async (req, res) => {
         const { usersTotal, usersEnabled, nodesTotal, nodesOnline, trafficStats } = counts;
         
         const nodes = await HyNode.find({ active: true })
-            .select('name ip status onlineUsers maxOnlineUsers groups traffic')
+            .select('name ip status onlineUsers maxOnlineUsers groups traffic type flag rankingCoefficient')
             .populate('groups', 'name color')
-            .sort({ name: 1 });
+            .sort({ rankingCoefficient: 1, name: 1 });
         
         const totalOnline = nodes.reduce((sum, n) => sum + (n.onlineUsers || 0), 0);
         
@@ -103,10 +103,11 @@ router.get('/', async (req, res) => {
 router.get('/nodes', async (req, res) => {
     try {
         const CascadeLink = require('../../models/cascadeLinkModel');
-        const [nodes, groups, linksCount] = await Promise.all([
-            HyNode.find().populate('groups', 'name color').sort({ name: 1 }),
+        const [nodes, groups, linksCount, settings] = await Promise.all([
+            HyNode.find().populate('groups', 'name color').sort({ rankingCoefficient: 1, name: 1 }),
             getActiveGroups(),
             CascadeLink.countDocuments({ active: true }),
+            Settings.get(),
         ]);
 
         render(res, 'nodes', {
@@ -115,6 +116,7 @@ router.get('/nodes', async (req, res) => {
             nodes,
             groups,
             linksCount,
+            loadBalancingEnabled: !!(settings?.loadBalancing?.enabled),
         });
     } catch (error) {
         res.status(500).send('Error: ' + error.message);
@@ -137,6 +139,53 @@ router.get('/nodes/add', async (req, res) => {
     } catch (error) {
         logger.error('[Panel] GET /nodes/add error:', error.message);
         res.status(500).send('Error: ' + error.message);
+    }
+});
+
+// PATCH /panel/nodes/reorder - Bulk-update rankingCoefficient from drag-and-drop
+router.patch('/nodes/reorder', async (req, res) => {
+    try {
+        const order = req.body.order;
+
+        if (!Array.isArray(order) || order.length === 0 || order.length > 500) {
+            return res.status(400).json({ success: false, error: 'Invalid order array' });
+        }
+
+        const mongoose = require('mongoose');
+        const bulk = [];
+
+        for (const item of order) {
+            if (!mongoose.Types.ObjectId.isValid(item.id)) continue;
+            const pos = parseInt(item.position, 10);
+            if (!Number.isFinite(pos) || pos < 0) continue;
+            bulk.push({
+                updateOne: {
+                    filter: { _id: new mongoose.Types.ObjectId(item.id) },
+                    update: { $set: { rankingCoefficient: pos } },
+                },
+            });
+        }
+
+        if (bulk.length === 0) {
+            return res.status(400).json({ success: false, error: 'No valid entries' });
+        }
+
+        const result = await HyNode.bulkWrite(bulk, { ordered: false });
+        logger.info(`[Panel] Reorder: ${bulk.length} ops, matched=${result.matchedCount}, modified=${result.modifiedCount}`);
+
+        if (result.matchedCount === 0) {
+            return res.status(400).json({ success: false, error: `No nodes matched (${bulk.length} ops sent)` });
+        }
+
+        await Promise.all([
+            cache.invalidateNodes(),
+            cache.invalidateAllSubscriptions(),
+        ]);
+
+        res.json({ success: true, matched: result.matchedCount, modified: result.modifiedCount });
+    } catch (error) {
+        logger.error(`[Panel] Reorder nodes error: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -220,6 +269,11 @@ router.post('/nodes', async (req, res) => {
 
         const newNode = await HyNode.create(nodeData);
         logger.info(`[Panel] Created ${nodeType} node ${name} (${ip})`);
+        // Invalidate active-nodes and all subscription caches so changes are reflected immediately
+        await Promise.all([
+            cache.invalidateNodes(),
+            cache.invalidateAllSubscriptions(),
+        ]);
         res.redirect(`/panel/nodes/${newNode._id}`);
     } catch (error) {
         logger.error(`[Panel] Create node error: ${error.message}`);
@@ -393,6 +447,11 @@ router.post('/nodes/:id', async (req, res) => {
         }
 
         await HyNode.findByIdAndUpdate(nodeId, { $set: updates });
+        // Invalidate active-nodes and all subscription caches so ranking/config changes apply immediately
+        await Promise.all([
+            cache.invalidateNodes(),
+            cache.invalidateAllSubscriptions(),
+        ]);
         res.redirect('/panel/nodes');
     } catch (error) {
         logger.error(`[Panel] Update node error: ${error.message}`);

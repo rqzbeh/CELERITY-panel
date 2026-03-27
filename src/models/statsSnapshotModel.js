@@ -1,10 +1,12 @@
 const mongoose = require('mongoose');
 
 const nodeStatSchema = new mongoose.Schema({
-    i: { type: String, required: true },      // nodeId 
-    n: { type: String, required: true },      // name 
+    i: { type: String, required: true },      // nodeId
+    n: { type: String, required: true },      // name
     o: { type: Number, default: 0 },          // onlineUsers
     s: { type: String, default: 'offline' },  // status
+    t: { type: Number, default: 0 },          // tx bytes delta since last snapshot
+    r: { type: Number, default: 0 },          // rx bytes delta since last snapshot
 }, { _id: false });
 
 const statsSnapshotSchema = new mongoose.Schema({

@@ -82,11 +82,17 @@
                             </td>
                 </tr>
                 <% } %>
-                <% nodes.forEach(node => { %>
-                        <tr class="node-row" data-nodeid="<%= node._id %>">
+                <% nodes.forEach(function(node, idx) { %>
+                        <tr class="node-row<%= idx >= 20 ? ' node-collapsed' : '' %>" data-nodeid="<%= node._id %>">
                             <td>
                                 <div class="node-cell">
-                                    <strong><%= node.name %></strong>
+                                    <span class="node-name-row">
+                                        <% if (node.flag) { %><span class="node-flag"><%= node.flag %></span><% } %>
+                                        <strong><%= node.name %></strong>
+                                        <img src="/img/<%= node.type === 'xray' ? 'xray' : 'hysteria' %>.svg"
+                                             alt="<%= node.type === 'xray' ? 'Xray' : 'Hysteria' %>"
+                                             style="width:14px;height:14px;vertical-align:middle;opacity:0.7;">
+                                    </span>
                                     <code class="node-ip"><%= node.ip %></code>
                                 </div>
                             </td>
@@ -115,6 +121,13 @@
             </tbody>
         </table>
                 </div>
+                <% if (nodes.length > 20) { %>
+                <div id="showAllNodesWrapper" style="text-align:center;padding:10px 0 6px;">
+                    <button class="btn btn-sm" id="showAllNodesBtn" onclick="showAllDashboardNodes()">
+                        <i class="ti ti-chevrons-down"></i> <%= t('dashboard.showAll') %> (<%= nodes.length %>)
+                    </button>
+                </div>
+                <% } %>
                 
                 <!-- Mobile Cards -->
                 <div class="mobile-nodes-list">
@@ -124,13 +137,19 @@
                             <a href="/panel/nodes/add" class="btn btn-primary btn-sm"><%= t('dashboard.addNode') %></a>
                         </div>
                     <% } %>
-                    <% nodes.forEach(node => { %>
-                        <div class="mobile-node-card" data-nodeid="<%= node._id %>">
-                            <div class="mobile-node-header">
-                                <div class="mobile-node-title">
+                    <% nodes.forEach(function(node, idx) { %>
+                        <div class="mobile-node-card<%= idx >= 20 ? ' node-collapsed' : '' %>" data-nodeid="<%= node._id %>">
+                        <div class="mobile-node-header">
+                            <div class="mobile-node-title">
+                                <span class="node-name-row">
+                                    <% if (node.flag) { %><span class="node-flag"><%= node.flag %></span><% } %>
                                     <strong><%= node.name %></strong>
-                                    <code><%= node.ip %></code>
-                                </div>
+                                    <img src="/img/<%= node.type === 'xray' ? 'xray' : 'hysteria' %>.svg"
+                                         alt="<%= node.type === 'xray' ? 'Xray' : 'Hysteria' %>"
+                                         style="width:13px;height:13px;vertical-align:middle;opacity:0.7;">
+                                </span>
+                                <code><%= node.ip %></code>
+                            </div>
                                 <span class="status-indicator status-<%= node.status %>">
                                     <span class="status-dot"></span>
                                 </span>
@@ -162,6 +181,13 @@
                             </div>
                         </div>
                     <% }); %>
+                    <% if (nodes.length > 20) { %>
+                    <div id="showAllNodesMobileWrapper" style="text-align:center;padding:10px 0 6px;">
+                        <button class="btn btn-sm" onclick="showAllDashboardNodes()">
+                            <i class="ti ti-chevrons-down"></i> <%= t('dashboard.showAll') %> (<%= nodes.length %>)
+                        </button>
+                    </div>
+                    <% } %>
                 </div>
     </div>
 </div>
@@ -275,6 +301,9 @@
 <div id="toast" class="toast"></div>
 
 <style>
+/* Hidden overflow rows -- revealed by showAllDashboardNodes() */
+.node-collapsed { display: none !important; }
+
 /* Real-time logs status indicator */
 .logs-status-dot {
     display: inline-block;
@@ -634,7 +663,7 @@ async function loadSystemStats() {
     }
 }
 
-async function loadNodesStats() {
+async function loadNodesStats(onlyIds) {
     const renderStats = (data, desktopEl, mobileEl) => {
         if (data.success) {
             const cpuPercent = Math.min(Math.round((data.cpu.load1 / data.cpu.cores) * 100), 100);
@@ -659,22 +688,27 @@ async function loadNodesStats() {
         }
     };
     
-    // Collect unique nodeIds with their elements
+    // Collect visible node IDs only -- skip collapsed rows to avoid N*2 requests on page load
+    // When onlyIds is provided, further restrict to that set (used by showAllDashboardNodes)
     const nodesMap = new Map();
     
-    document.querySelectorAll('.node-row').forEach(row => {
+    document.querySelectorAll('.node-row:not(.node-collapsed)').forEach(row => {
         const nodeId = row.dataset.nodeid;
+        if (onlyIds && !onlyIds.has(nodeId)) return;
         if (!nodesMap.has(nodeId)) nodesMap.set(nodeId, { desktop: null, mobile: null });
         nodesMap.get(nodeId).desktop = row.querySelector('.node-load');
     });
     
     document.querySelectorAll('.node-load-mobile').forEach(card => {
+        const row = card.closest('.mobile-node-card');
+        if (row && row.classList.contains('node-collapsed')) return;
         const nodeId = card.dataset.nodeid;
+        if (onlyIds && !onlyIds.has(nodeId)) return;
         if (!nodesMap.has(nodeId)) nodesMap.set(nodeId, { desktop: null, mobile: null });
         nodesMap.get(nodeId).mobile = card.querySelector('.mobile-stat-value');
     });
     
-    // One request per node, parallel execution
+    // One request per visible node, in parallel
     const tasks = Array.from(nodesMap.entries()).map(([nodeId, elements]) => 
         fetch(`/panel/nodes/${nodeId}/stats`, { credentials: 'include' })
             .then(res => res.json())
@@ -688,7 +722,7 @@ async function loadNodesStats() {
     await Promise.all(tasks);
 }
 
-async function loadNodesSpeed() {
+async function loadNodesSpeed(onlyIds) {
     const formatSpeed = (bytes) => {
         const bits = bytes * 8;
         if (bits < 1000) return `${bits.toFixed(0)} bit/s`;
@@ -720,11 +754,13 @@ async function loadNodesSpeed() {
         }
     };
     
-    // Collect unique nodeIds with their elements
+    // Collect visible node IDs only -- skip collapsed rows
+    // When onlyIds is provided, further restrict to that set (used by showAllDashboardNodes)
     const nodesMap = new Map();
     
-    document.querySelectorAll('.node-row').forEach(row => {
+    document.querySelectorAll('.node-row:not(.node-collapsed)').forEach(row => {
         const nodeId = row.dataset.nodeid;
+        if (onlyIds && !onlyIds.has(nodeId)) return;
         if (!nodesMap.has(nodeId)) nodesMap.set(nodeId, { desktop: null, mobile: null });
         const el = row.querySelector('.node-speed');
         el.innerHTML = '<span class="load-placeholder"><i class="ti ti-loader-2"></i></span>';
@@ -732,14 +768,17 @@ async function loadNodesSpeed() {
     });
     
     document.querySelectorAll('.node-speed-mobile').forEach(card => {
+        const row = card.closest('.mobile-node-card');
+        if (row && row.classList.contains('node-collapsed')) return;
         const nodeId = card.dataset.nodeid;
+        if (onlyIds && !onlyIds.has(nodeId)) return;
         if (!nodesMap.has(nodeId)) nodesMap.set(nodeId, { desktop: null, mobile: null });
         const el = card.querySelector('.mobile-stat-value');
         el.innerHTML = '<i class="ti ti-loader-2"></i>';
         nodesMap.get(nodeId).mobile = el;
     });
     
-    // One request per node, parallel execution
+    // One request per visible node, in parallel
     const tasks = Array.from(nodesMap.entries()).map(([nodeId, elements]) => 
         fetch(`/panel/nodes/${nodeId}/speed`, { credentials: 'include' })
             .then(res => res.json())
@@ -751,6 +790,23 @@ async function loadNodesSpeed() {
     );
     
     await Promise.all(tasks);
+}
+
+// Expand all hidden nodes and load their stats/speed (only for newly revealed)
+async function showAllDashboardNodes() {
+    // Collect IDs of nodes that were collapsed (not yet loaded)
+    const newIds = new Set();
+    document.querySelectorAll('.node-collapsed').forEach(el => {
+        newIds.add(el.dataset.nodeid);
+        el.classList.remove('node-collapsed');
+    });
+    const wrapper = document.getElementById('showAllNodesWrapper');
+    if (wrapper) wrapper.remove();
+    const mobileWrapper = document.getElementById('showAllNodesMobileWrapper');
+    if (mobileWrapper) mobileWrapper.remove();
+    if (newIds.size === 0) return;
+    // Only fetch stats/speed for newly revealed nodes
+    await Promise.all([loadNodesStats(newIds), loadNodesSpeed(newIds)]);
 }
 
 async function refreshStats() {
