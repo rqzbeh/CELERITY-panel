@@ -677,8 +677,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 
     const buttons = (sub.buttons || []).filter(b => b.label && b.url);
     const buttonsHtml = buttons.length > 0
-        ? `<div class="section">
-            <h2><i class="ti ti-apps"></i> ПРИЛОЖЕНИЯ</h2>
+        ? `<div class="section" style="padding:12px;">
             <div class="btn-grid">
                 ${buttons.map(b => {
                     const href = resolveButtonUrl(b.url, baseUrl);
