@@ -149,7 +149,7 @@
             .icon-picker-grid::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
             .icon-pick-cell { display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:6px; cursor:pointer; font-size:17px; color:var(--text-muted,#aaa); transition: background .1s, color .1s; }
             .icon-pick-cell:hover { background:var(--primary); color:#fff; }
-            .tpl-dropdown { display:none; position:absolute; left:0; top:calc(100% + 4px); min-width:220px; background:var(--bg-secondary,#1c1c2e); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.4); z-index:100; padding:6px 0; }
+            .tpl-dropdown { display:none; position:absolute; left:0; bottom:calc(100% + 4px); min-width:220px; max-height:320px; overflow-y:auto; background:var(--bg-secondary,#1c1c2e); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.4); z-index:100; padding:6px 0; }
             .tpl-dropdown.open { display:block; }
             .tpl-section { padding:6px 14px 4px; font-size:11px; color:var(--text-muted,#888); text-transform:uppercase; letter-spacing:.04em; }
             .tpl-item { display:flex; align-items:center; gap:8px; padding:7px 14px; font-size:13px; cursor:pointer; color:var(--text); transition: background .1s; }
