@@ -660,12 +660,37 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
            </div>`
         : '';
 
-    const supportHtml = sub.supportUrl
-        ? `<div class="section" style="text-align:center;">
-            <a href="${sub.supportUrl}" target="_blank" rel="noopener noreferrer"
-               style="display:inline-flex; align-items:center; gap:8px; padding:10px 20px; background:var(--card); border:1px solid var(--border); border-radius:10px; color:var(--text); text-decoration:none; font-size:14px;">
-                <i class="ti ti-headset" style="font-size:18px; color:var(--accent);"></i> Поддержка
-            </a>
+    function escAttr(s) {
+        return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function resolveButtonUrl(rawUrl, subUrl) {
+        if (!rawUrl) return null;
+        const b64 = Buffer.from(subUrl).toString('base64');
+        const resolved = rawUrl
+            .replace(/\{url_encoded\}/g, encodeURIComponent(subUrl))
+            .replace(/\{url_b64\}/g, b64)
+            .replace(/\{url\}/g, subUrl);
+        if (/^javascript:/i.test(resolved)) return null;
+        return resolved;
+    }
+
+    const buttons = (sub.buttons || []).filter(b => b.label && b.url);
+    const buttonsHtml = buttons.length > 0
+        ? `<div class="section">
+            <h2><i class="ti ti-apps"></i> ПРИЛОЖЕНИЯ</h2>
+            <div class="btn-grid">
+                ${buttons.map(b => {
+                    const href = resolveButtonUrl(b.url, baseUrl);
+                    if (!href) return '';
+                    const iconClass = (b.icon || '').trim().replace(/[^a-zA-Z0-9-]/g, '') || 'ti-external-link';
+                    const safeLabel = escAttr(b.label);
+                    return `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer" class="app-btn">
+                        <i class="ti ${iconClass}" style="font-size:18px; color:var(--accent); flex-shrink:0;"></i>
+                        <span>${safeLabel}</span>
+                    </a>`;
+                }).filter(Boolean).join('')}
+            </div>
            </div>`
         : '';
 
@@ -711,6 +736,10 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         .header h1 { display: flex; align-items: center; justify-content: center; gap: 8px; }
         .section h2 { display: flex; align-items: center; gap: 8px; }
         .copy-btn { display: inline-flex; align-items: center; gap: 6px; }
+        .btn-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .app-btn { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text); text-decoration: none; font-size: 14px; transition: background 0.15s, border-color 0.15s; }
+        .app-btn:hover { background: #1a1a1a; border-color: var(--accent); }
+        @media (max-width: 360px) { .btn-grid { grid-template-columns: 1fr; } }
     </style>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 </head>
@@ -766,7 +795,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         </div>
 
         ${qrSectionHtml}
-        ${supportHtml}
+        ${buttonsHtml}
     </div>
     
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
@@ -1001,7 +1030,7 @@ function sendCachedSubscription(res, data, format, userAgent, settings) {
         'Content-Type': `${contentType}; charset=utf-8`,
         'Content-Disposition': `attachment; filename="${data.username}"`,
         'Profile-Title': encodeTitle(data.profileTitle),
-        'Profile-Update-Interval': '12',
+        'Profile-Update-Interval': String(settings?.subscription?.updateInterval || 12),
         'Subscription-Userinfo': [
             `upload=${data.traffic.tx}`,
             `download=${data.traffic.rx}`,

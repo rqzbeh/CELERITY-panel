@@ -68,14 +68,44 @@
 
                 <hr style="margin: 1.25rem 0; border-color: var(--border);">
 
-                <div class="form-group" style="max-width: 300px;">
-                    <label><%= t('settings.subHappProviderId') || 'HAPP Provider ID' %></label>
-                    <input type="text" name="subscription.happProviderId"
-                           value="<%= settings?.subscription?.happProviderId || '' %>"
-                           placeholder="Ab12Cd34"
-                           maxlength="8"
-                           style="font-family: monospace; letter-spacing: 0.05em;">
-                    <small class="hint"><%= t('settings.subHappProviderIdHint') || '8-символьный код из happ-proxy.com (опционально).' %></small>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label><%= t('settings.subHappProviderId') || 'HAPP Provider ID' %></label>
+                        <input type="text" name="subscription.happProviderId"
+                               value="<%= settings?.subscription?.happProviderId || '' %>"
+                               placeholder="Ab12Cd34"
+                               maxlength="8"
+                               style="font-family: monospace; letter-spacing: 0.05em;">
+                        <small class="hint"><%= t('settings.subHappProviderIdHint') || '8-символьный код из happ-proxy.com (опционально).' %></small>
+                    </div>
+                    <div class="form-group">
+                        <label><%= t('settings.subUpdateInterval') || 'Интервал обновления' %></label>
+                        <input type="number" name="subscription.updateInterval"
+                               value="<%= settings?.subscription?.updateInterval ?? 12 %>"
+                               min="1" max="168" step="1"
+                               style="max-width: 120px;">
+                        <small class="hint"><%= t('settings.subUpdateIntervalHint') || 'Как часто клиенты автоматически обновляют подписку (в часах). Отправляется в заголовке Profile-Update-Interval.' %></small>
+                    </div>
+                </div>
+
+                <hr style="margin: 1.25rem 0; border-color: var(--border);">
+
+                <%/* Custom buttons section */%>
+                <div class="form-group">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                        <label style="margin-bottom: 0;"><%= t('settings.subButtons') || 'Кнопки на странице подписки' %></label>
+                        <span style="font-size: 12px; color: var(--text-muted);" id="subBtnCount"></span>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.5;">
+                        <i class="ti ti-info-circle"></i>
+                        Используйте <code>{url}</code> в URL для подстановки ссылки подписки (например: <code>hiddify://import/{url}</code>).
+                        Для Shadowrocket: <code>sub://{url_b64}</code>. Для query-параметров: <code>{url_encoded}</code>.
+                        Иконки: <a href="https://tabler.io/icons" target="_blank" style="color: var(--primary);">tabler.io/icons</a> (например: <code>ti-download</code>).
+                    </p>
+                    <div id="subButtonsList" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;"></div>
+                    <button type="button" id="subAddBtn" class="btn btn-secondary" style="font-size: 13px;" onclick="subAddButton()">
+                        <i class="ti ti-plus"></i> <%= t('settings.subAddButton') || 'Добавить кнопку' %>
+                    </button>
                 </div>
 
                 <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
@@ -84,6 +114,56 @@
                     </button>
                 </div>
             </form>
+
+            <script>
+            (function() {
+                const MAX_BUTTONS = 10;
+                const initialButtons = <%- JSON.stringify((settings?.subscription?.buttons || []).map(b => ({ label: b.label || '', url: b.url || '', icon: b.icon || '' }))) %>;
+                const list = document.getElementById('subButtonsList');
+                const addBtn = document.getElementById('subAddBtn');
+                const countEl = document.getElementById('subBtnCount');
+
+                function updateCount() {
+                    const rows = list.querySelectorAll('.sub-btn-row');
+                    countEl.textContent = rows.length + ' / ' + MAX_BUTTONS;
+                    addBtn.disabled = rows.length >= MAX_BUTTONS;
+                }
+
+                function reindex() {
+                    list.querySelectorAll('.sub-btn-row').forEach(function(row, i) {
+                        row.querySelectorAll('[data-field]').forEach(function(inp) {
+                            inp.name = 'subscription.buttons[' + i + '].' + inp.dataset.field;
+                        });
+                    });
+                    updateCount();
+                }
+
+                window.subAddButton = function(data) {
+                    if (list.querySelectorAll('.sub-btn-row').length >= MAX_BUTTONS) return;
+                    data = data || {};
+                    const row = document.createElement('div');
+                    row.className = 'sub-btn-row';
+                    row.style.cssText = 'display:grid; grid-template-columns: 1fr 2fr 1fr auto; gap:8px; align-items:center;';
+                    row.innerHTML = [
+                        '<input type="text" data-field="label" placeholder="Hiddify" value="' + esc(data.label || '') + '" style="min-width:0;" title="Название кнопки">',
+                        '<input type="text" data-field="url"   placeholder="hiddify://import/{url}" value="' + esc(data.url || '') + '" style="min-width:0; font-size:12px;" title="URL — переменные: {url}, {url_b64}, {url_encoded}">',
+                        '<input type="text" data-field="icon"  placeholder="ti-download" value="' + esc(data.icon || '') + '" style="min-width:0; font-size:12px;" title="Иконка из Tabler Icons">',
+                        '<button type="button" class="btn btn-danger" style="padding:0.4rem 0.6rem; flex-shrink:0;" onclick="this.closest(\'.sub-btn-row\').remove(); reindexSubButtons();" title="Удалить"><i class="ti ti-trash" style="font-size:14px;"></i></button>',
+                    ].join('');
+                    list.appendChild(row);
+                    reindex();
+                };
+
+                window.reindexSubButtons = reindex;
+
+                function esc(s) {
+                    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                }
+
+                initialButtons.forEach(function(b) { window.subAddButton(b); });
+                updateCount();
+            })();
+            </script>
         </div>
     </div>
 </div>

@@ -308,6 +308,7 @@ const i18n = {
     upload: <%- JSON.stringify(t('stats.upload')) %>,
     download: <%- JSON.stringify(t('stats.download')) %>,
     connections: <%- JSON.stringify(t('common.connections')) %>,
+    allNodes: <%- JSON.stringify(t('stats.allNodes')) %>,
     noData: <%- JSON.stringify(t('stats.noData')) %>,
     hourChange: <%- JSON.stringify(t('stats.hourChange')) %>,
 };
@@ -603,7 +604,7 @@ function updateNodesChart(data) {
     // Populate both selectors
     [document.getElementById('nodeSelector'), document.getElementById('nodeTrafficSelector')].forEach(sel => {
         if (!sel) return;
-        sel.innerHTML = `<option value="all">${i18n.connections}</option>`;
+        sel.innerHTML = `<option value="all">${i18n.allNodes}</option>`;
         data.nodes.forEach((node, i) => {
             sel.innerHTML += `<option value="${i}">${node.name}</option>`;
         });

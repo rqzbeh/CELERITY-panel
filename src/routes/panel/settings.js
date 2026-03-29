@@ -116,6 +116,27 @@ router.post('/settings', async (req, res) => {
             updates['subscription.happProviderId'] = req.body['subscription.happProviderId'] || '';
             updates['subscription.logoUrl']        = req.body['subscription.logoUrl'] || '';
             updates['subscription.pageTitle']      = req.body['subscription.pageTitle'] || '';
+
+            const rawInterval = parseInt(req.body['subscription.updateInterval'], 10);
+            updates['subscription.updateInterval'] = isNaN(rawInterval) ? 12 : Math.min(168, Math.max(1, rawInterval));
+
+            const buttonsMap = {};
+            for (const key of Object.keys(req.body)) {
+                const m = key.match(/^subscription\.buttons\[(\d+)\]\.(label|url|icon)$/);
+                if (m) {
+                    const idx = parseInt(m[1], 10);
+                    const field = m[2];
+                    if (!buttonsMap[idx]) buttonsMap[idx] = {};
+                    buttonsMap[idx][field] = req.body[key] || '';
+                }
+            }
+            const buttons = Object.keys(buttonsMap)
+                .sort((a, b) => a - b)
+                .map(idx => buttonsMap[idx])
+                .filter(b => b.label && b.url)
+                .slice(0, 10)
+                .map(b => ({ label: b.label.trim(), url: b.url.trim(), icon: (b.icon || '').trim() }));
+            updates['subscription.buttons'] = buttons;
         }
 
         // Backup settings

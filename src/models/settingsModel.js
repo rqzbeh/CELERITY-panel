@@ -76,6 +76,16 @@ const settingsSchema = new mongoose.Schema({
         happProviderId: { type: String, default: '' },
         logoUrl:        { type: String, default: '' },
         pageTitle:      { type: String, default: '' },
+        updateInterval: { type: Number, default: 12 },
+        buttons: {
+            type: [{
+                _id: false,
+                label: { type: String, default: '' },
+                url:   { type: String, default: '' },
+                icon:  { type: String, default: '' },
+            }],
+            default: [],
+        },
     },
     
 }, { timestamps: true });

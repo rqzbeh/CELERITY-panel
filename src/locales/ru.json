@@ -706,7 +706,12 @@
     "subWebPageUrl": "Ссылка на веб-страницу",
     "subWebPageUrlHint": "Отображается кнопкой «Открыть веб-страницу» в Hiddify. Например: лендинг или кабинет.",
     "subHappProviderId": "HAPP Provider ID",
-    "subHappProviderIdHint": "Опциональный 8-символьный код из happ-proxy.com. Открывает статистику и кнопку обратной связи."
+    "subHappProviderIdHint": "Опциональный 8-символьный код из happ-proxy.com. Открывает статистику и кнопку обратной связи.",
+    "subUpdateInterval": "Интервал обновления (часы)",
+    "subUpdateIntervalHint": "Как часто клиенты автоматически обновляют подписку. Передаётся в заголовке Profile-Update-Interval. Диапазон: 1–168 часов.",
+    "subButtons": "Кнопки на странице подписки",
+    "subButtonsHint": "Используйте {url} в поле URL для подстановки ссылки подписки (например: hiddify://import/{url}). Для Shadowrocket: sub://{url_b64}. Для query-параметров: {url_encoded}. Иконки: tabler.io/icons (например: ti-download).",
+    "subAddButton": "Добавить кнопку"
   },
   "setup": {
     "title": "Первоначальная настройка",

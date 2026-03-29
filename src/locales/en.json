@@ -706,7 +706,12 @@
     "subWebPageUrl": "Web Page URL",
     "subWebPageUrlHint": "Shown as an \"Open Web Page\" button in Hiddify. Example: landing or user portal.",
     "subHappProviderId": "HAPP Provider ID",
-    "subHappProviderIdHint": "Optional 8-character code from happ-proxy.com. Unlocks statistics and feedback button."
+    "subHappProviderIdHint": "Optional 8-character code from happ-proxy.com. Unlocks statistics and feedback button.",
+    "subUpdateInterval": "Update Interval (hours)",
+    "subUpdateIntervalHint": "How often clients auto-refresh the subscription. Sent as the Profile-Update-Interval response header. Range: 1–168 hours.",
+    "subButtons": "Buttons on subscription page",
+    "subButtonsHint": "Use {url} in the URL field to insert the subscription link (e.g. hiddify://import/{url}). For Shadowrocket use sub://{url_b64}. For query params use {url_encoded}. Icons: tabler.io/icons (e.g. ti-download).",
+    "subAddButton": "Add button"
   },
   "setup": {
     "title": "Initial Setup",
