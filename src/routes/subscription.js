@@ -619,7 +619,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     
     const trafficUsed = ((user.traffic?.tx || 0) + (user.traffic?.rx || 0)) / (1024 * 1024 * 1024);
     const trafficLimit = user.trafficLimit ? user.trafficLimit / (1024 * 1024 * 1024) : 0;
-    const createdDate = user.createdAt ? new Date(user.createdAt).toLocaleDateString('ru-RU') : '—';
     const expireDate = user.expireAt ? new Date(user.expireAt).toLocaleDateString('ru-RU') : 'Бессрочно';
     
     // Group by location preserving node sort order (Map keeps insertion order for all key types)
@@ -758,10 +757,6 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
             <div class="stat">
                 <div class="stat-value">${locations.size}</div>
                 <div class="stat-label">Локаций</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value">${createdDate}</div>
-                <div class="stat-label">Создана</div>
             </div>
             <div class="stat">
                 <div class="stat-value">${expireDate}</div>
