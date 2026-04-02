@@ -420,6 +420,7 @@
     "sniScanIssuer": "Издатель",
     "sniScanFound": "найдено",
     "sniScanScanning": "Сканирование…",
+    "sniScanVerifying": "Проверка доменов…",
     "sniScanDone": "Готово",
     "sniScanErrIp": "Введите корректный IPv4-адрес",
     "xrayPrivateKey": "Приватный ключ",

@@ -202,7 +202,7 @@ async function verifyDomain(candidate, port, timeoutMs) {
  * @param {AbortSignal}  [opts.signal]     - Cancellation signal
  * @returns {Promise<Array>} Results sorted by ping ascending
  */
-async function scanRange({ ip, port = 443, threads = 50, timeout = 5, onResult, onProgress, signal } = {}) {
+async function scanRange({ ip, port = 443, threads = 50, timeout = 5, onResult, onProgress, onVerifying, signal } = {}) {
     const cidr    = ipToCidr24(ip);
     const hosts   = expandCidr(cidr);
     const total   = hosts.length;
@@ -219,6 +219,7 @@ async function scanRange({ ip, port = 443, threads = 50, timeout = 5, onResult, 
         if (!candidate) return;
 
         // Verify domain resolves and is reachable at its real DNS address
+        if (onVerifying) onVerifying();
         const verified = await verifyDomain(candidate, port, timeout * 1000);
         if (!verified) return;
 

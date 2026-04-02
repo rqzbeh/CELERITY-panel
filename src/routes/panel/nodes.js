@@ -295,10 +295,11 @@ router.post('/nodes/scan-sni', sniScanLimiter, async (req, res) => {
         return res.status(400).json({ error: 'Invalid IPv4 address' });
     }
 
-    res.setHeader('Content-Type',    'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control',   'no-cache');
-    res.setHeader('Connection',      'keep-alive');
+    res.setHeader('Content-Type',      'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control',     'no-cache');
+    res.setHeader('Connection',        'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.flushHeaders();
 
     const controller = new AbortController();
@@ -307,6 +308,8 @@ router.post('/nodes/scan-sni', sniScanLimiter, async (req, res) => {
     const send = (type, data = {}) => {
         if (!res.writableEnded) {
             res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+            // Force flush through compression middleware if present
+            if (typeof res.flush === 'function') res.flush();
         }
     };
 
@@ -317,8 +320,9 @@ router.post('/nodes/scan-sni', sniScanLimiter, async (req, res) => {
             threads,
             timeout,
             signal:      controller.signal,
-            onResult:    r    => send('result',   r),
+            onResult:    r             => send('result',   r),
             onProgress:  (done, total) => send('progress', { done, total }),
+            onVerifying: ()            => send('verifying'),
         });
         send('done');
     } catch (err) {

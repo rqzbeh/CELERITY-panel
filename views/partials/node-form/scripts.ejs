@@ -1014,6 +1014,7 @@ function switchNodesViewNetwork() {
 
 const sniI18n = {
     scanning:   <%- JSON.stringify(t('nodes.sniScanScanning'))   %>,
+    verifying:  <%- JSON.stringify(t('nodes.sniScanVerifying'))  %>,
     found:      <%- JSON.stringify(t('nodes.sniScanFound'))      %>,
     done:       <%- JSON.stringify(t('nodes.sniScanDone'))       %>,
     noResults:  <%- JSON.stringify(t('nodes.sniScanNoResults'))  %>,
@@ -1161,7 +1162,9 @@ async function startSniScan() {
                 let evt;
                 try { evt = JSON.parse(line.slice(6)); } catch { continue; }
 
-                if (evt.type === 'progress') {
+                if (evt.type === 'verifying') {
+                    _sniSetStatus(sniI18n.verifying);
+                } else if (evt.type === 'progress') {
                     _sniSetProgress(evt.done, evt.total);
                     _sniSetStatus(`${sniI18n.scanning} ${evt.done}/${evt.total}`);
                 } else if (evt.type === 'result') {

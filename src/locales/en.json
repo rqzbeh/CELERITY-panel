@@ -420,6 +420,7 @@
     "sniScanIssuer": "Issuer",
     "sniScanFound": "found",
     "sniScanScanning": "Scanning…",
+    "sniScanVerifying": "Verifying domains…",
     "sniScanDone": "Done",
     "sniScanErrIp": "Enter a valid IPv4 address",
     "xrayPrivateKey": "Private Key",
