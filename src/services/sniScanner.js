@@ -160,28 +160,32 @@ async function runPool(tasks, concurrency, signal) {
  * @returns {Promise<object|null>}
  */
 async function verifyDomain(candidate, port, timeoutMs) {
+    // The /24 prefix of the originally scanned IP
+    const subnetPrefix = candidate.ip.split('.').slice(0, 3).join('.');
+
     let resolvedIp;
     try {
         const { address } = await dns.lookup(candidate.domain, { family: 4 });
         resolvedIp = address;
     } catch {
-        // DNS resolution failed — domain likely invalid or unreachable
         return null;
     }
 
-    // Domain DNS resolves to the same IP we scanned — already verified
+    // Resolved IP must stay within the same /24 subnet we scanned.
+    // Domains that resolve to a completely different network (CDN certs,
+    // shared-hosting artifacts, etc.) are not useful as Reality neighbors.
+    const resolvedPrefix = resolvedIp.split('.').slice(0, 3).join('.');
+    if (resolvedPrefix !== subnetPrefix) return null;
+
+    // If DNS points to the exact same IP we already probed — already verified
     if (resolvedIp === candidate.ip) {
         return { ...candidate, dnsMatch: true };
     }
 
-    // Domain resolves to a different IP — probe the real address
+    // DNS points to a different host within the same /24 — probe it too
     const realResult = await probeHost(resolvedIp, port, timeoutMs);
-    if (!realResult || realResult.domain !== candidate.domain) {
-        // Real IP doesn't pass TLS check or cert domain doesn't match
-        return null;
-    }
+    if (!realResult || realResult.domain !== candidate.domain) return null;
 
-    // Use ping to the real IP (more accurate for Reality dest latency)
     return { ...realResult, dnsMatch: true };
 }
 
