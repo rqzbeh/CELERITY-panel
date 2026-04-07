@@ -1261,6 +1261,13 @@ router.get('/files/:token', async (req, res) => {
         // Read settings (from Redis cache — fast)
         const settings = await getSettings();
 
+        // HAPP gets v2ray-json only when routing rules are enabled (otherwise there's no
+        // benefit, and the user loses per-server switching in HAPP UI). Fall back to URI.
+        if (format === 'v2ray-json' && !settings?.routing?.enabled) {
+            format = 'uri';
+            logger.debug(`[Sub] Routing disabled → downgrade HAPP to URI`);
+        }
+
         // Check cache
         const cached = await cache.getSubscription(token, format);
         if (cached) {
