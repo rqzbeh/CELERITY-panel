@@ -127,6 +127,28 @@ router.post('/settings', async (req, res) => {
                 .filter(b => b && b.label && b.url)
                 .slice(0, 10)
                 .map(b => ({ label: String(b.label).trim(), url: String(b.url).trim(), icon: String(b.icon || '').trim() }));
+
+            // HAPP-specific settings
+            const VALID_PING_TYPES = ['', 'proxy', 'proxy-head', 'tcp', 'icmp'];
+            const rawPingType = req.body['subscription.happ.pingType'] || '';
+            updates['subscription.happ.announce']     = String(req.body['subscription.happ.announce'] || '').trim().slice(0, 200);
+            updates['subscription.happ.hideSettings'] = req.body['subscription.happ.hideSettings'] === 'on';
+            updates['subscription.happ.notifyExpire'] = req.body['subscription.happ.notifyExpire'] === 'on';
+            updates['subscription.happ.alwaysHwid']   = req.body['subscription.happ.alwaysHwid'] === 'on';
+            updates['subscription.happ.pingType']     = VALID_PING_TYPES.includes(rawPingType) ? rawPingType : '';
+            updates['subscription.happ.pingUrl']      = String(req.body['subscription.happ.pingUrl'] || '').trim().slice(0, 500);
+            updates['subscription.happ.colorProfile'] = (() => {
+                const raw = String(req.body['subscription.happ.colorProfile'] || '').trim();
+                if (!raw) return '';
+                if (raw.length > 5120) return '';
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) return '';
+                    return JSON.stringify(parsed);
+                } catch {
+                    return '';
+                }
+            })();
         }
 
         // Routing settings

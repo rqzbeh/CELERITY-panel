@@ -86,6 +86,15 @@ const settingsSchema = new mongoose.Schema({
             }],
             default: [],
         },
+        happ: {
+            announce:     { type: String, default: '' },
+            hideSettings: { type: Boolean, default: false },
+            notifyExpire: { type: Boolean, default: false },
+            alwaysHwid:   { type: Boolean, default: false },
+            pingType:     { type: String, enum: ['', 'proxy', 'proxy-head', 'tcp', 'icmp'], default: '' },
+            pingUrl:      { type: String, default: '' },
+            colorProfile: { type: String, default: '' },
+        },
     },
 
     routing: {

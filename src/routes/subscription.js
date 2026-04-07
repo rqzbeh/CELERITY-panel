@@ -1573,7 +1573,7 @@ function sendCachedSubscription(res, data, format, userAgent, settings) {
 
     let content = data.content;
 
-    // HAPP: deliver routing rules via native happ://routing/ protocol
+    // HAPP: deliver routing rules and advanced settings via HTTP headers
     if (/happ/i.test(userAgent)) {
         if (settings?.routing?.enabled) {
             const profile = buildHappRoutingProfile(settings.routing);
@@ -1589,6 +1589,28 @@ function sendCachedSubscription(res, data, format, userAgent, settings) {
             headers['routing'] = 'happ://routing/off';
             if (format === 'uri' || format === 'raw') {
                 content = `happ://routing/off\n${content}`;
+            }
+        }
+
+        const happ = settings?.subscription?.happ;
+        if (happ) {
+            if (happ.announce) {
+                const hasNonAscii = /[^\x20-\x7E]/.test(happ.announce);
+                headers['announce'] = hasNonAscii
+                    ? 'base64:' + Buffer.from(happ.announce).toString('base64')
+                    : happ.announce;
+            }
+            if (sub?.happProviderId) {
+                if (happ.hideSettings)  headers['hide-settings']                  = '1';
+                if (happ.notifyExpire)  headers['notification-subs-expire']       = '1';
+                if (happ.alwaysHwid)    headers['subscription-always-hwid-enable'] = '1';
+                if (happ.pingType) {
+                    headers['ping-type'] = happ.pingType;
+                    if ((happ.pingType === 'proxy' || happ.pingType === 'proxy-head') && happ.pingUrl) {
+                        headers['check-url-via-proxy'] = happ.pingUrl;
+                    }
+                }
+                if (happ.colorProfile)  headers['color-profile'] = happ.colorProfile;
             }
         }
     }

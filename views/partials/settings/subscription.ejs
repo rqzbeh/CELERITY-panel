@@ -71,7 +71,7 @@
                 <div class="settings-grid">
                     <div class="form-group">
                         <label><%= t('settings.subHappProviderId') || 'HAPP Provider ID' %></label>
-                        <input type="text" name="subscription.happProviderId"
+                        <input type="text" name="subscription.happProviderId" id="happProviderId"
                                value="<%= settings?.subscription?.happProviderId || '' %>"
                                placeholder="Ab12Cd34"
                                maxlength="8"
@@ -336,4 +336,6 @@
     </div>
 
     <%- include('routing') %>
+
+<%- include('happ') %>
 </div>
