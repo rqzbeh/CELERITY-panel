@@ -1,0 +1,327 @@
+<!-- ==================== TAB: ROUTING ==================== -->
+<div class="tab-content" id="tab-routing">
+    <div class="card">
+        <div class="card-header">
+            <h2><i class="ti ti-route"></i> <%= t('settings.routingTitle') %></h2>
+            <p class="hint" style="margin:0"><%- t('settings.routingDesc') %></p>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="/panel/settings" id="routingForm">
+                <input type="hidden" name="_routingSettings" value="1">
+
+                <%# ======== Master switch ======== %>
+                <div class="form-section" style="margin-bottom:1.5rem;">
+                    <label class="checkbox-label" style="font-size:15px; font-weight:600;">
+                        <input type="checkbox" name="routing.enabled" id="routingMasterSwitch"
+                               <%= settings?.routing?.enabled ? 'checked' : '' %>
+                               onchange="toggleRoutingEnabled()">
+                        <span class="checkbox-text"><%= t('settings.routingEnabled') %></span>
+                    </label>
+                    <p class="hint" style="margin-top:6px;"><%= t('settings.routingEnabledHint') %></p>
+                </div>
+
+                <div id="routingBody" style="<%= settings?.routing?.enabled ? '' : 'display:none' %>">
+
+                    <%# ======== Client support info ======== %>
+                    <div class="alert" style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.25); border-radius:8px; padding:12px 16px; margin-bottom:1.5rem; font-size:13px; line-height:1.6;">
+                        <i class="ti ti-info-circle" style="color:var(--primary);"></i>
+                        <strong style="color:var(--primary);"> <%= t('settings.routingClientSupport') %>:</strong>
+                        <%- t('settings.routingClientSupportDesc') %>
+                    </div>
+
+                    <%# ======== Presets ======== %>
+                    <div class="form-section" style="margin-bottom:1.5rem;">
+                        <h3><%= t('settings.routingPresets') %> <small style="font-weight:400; color:var(--text-muted); font-size:12px;"><%= t('settings.routingPresetsHint') %></small></h3>
+                        <div class="presets-grid">
+                            <div class="preset-card" onclick="applyRoutingPreset('bypass-ru', this)">
+                                <div class="preset-icon"><i class="ti ti-flag"></i></div>
+                                <div class="preset-title"><%= t('settings.presetBypassRu') %></div>
+                                <div class="preset-desc"><%= t('settings.presetBypassRuDesc') %></div>
+                            </div>
+                            <div class="preset-card" onclick="applyRoutingPreset('bypass-cn', this)">
+                                <div class="preset-icon"><i class="ti ti-flag-2"></i></div>
+                                <div class="preset-title"><%= t('settings.presetBypassCn') %></div>
+                                <div class="preset-desc"><%= t('settings.presetBypassCnDesc') %></div>
+                            </div>
+                            <div class="preset-card" onclick="applyRoutingPreset('block-ads', this)">
+                                <div class="preset-icon"><i class="ti ti-ban"></i></div>
+                                <div class="preset-title"><%= t('settings.presetBlockAds') %></div>
+                                <div class="preset-desc"><%= t('settings.presetBlockAdsDesc') %></div>
+                            </div>
+                            <div class="preset-card" onclick="applyRoutingPreset('bypass-lan', this)">
+                                <div class="preset-icon"><i class="ti ti-home"></i></div>
+                                <div class="preset-title"><%= t('settings.presetBypassLan') %></div>
+                                <div class="preset-desc"><%= t('settings.presetBypassLanDesc') %></div>
+                            </div>
+                            <div class="preset-card" onclick="applyRoutingPreset('clear', this)">
+                                <div class="preset-icon"><i class="ti ti-trash"></i></div>
+                                <div class="preset-title"><%= t('settings.presetClear') %></div>
+                                <div class="preset-desc"><%= t('settings.presetClearDesc') %></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <%# ======== Rules table ======== %>
+                    <div class="form-section" style="margin-bottom:1.5rem;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                            <div>
+                                <h3 style="margin:0;"><%= t('settings.routingRules') %></h3>
+                                <p class="hint" style="margin:4px 0 0;"><%= t('settings.routingRulesHint') %></p>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="addRoutingRule()">
+                                <i class="ti ti-plus"></i> <%= t('settings.routingAddRule') %>
+                            </button>
+                        </div>
+
+                        <input type="hidden" name="routing.rulesJson" id="routingRulesJson" value="">
+
+                        <div id="routingRulesTable" style="overflow-x:auto;">
+                            <table style="width:100%; border-collapse:collapse; font-size:13px;" id="rulesTable">
+                                <thead>
+                                    <tr style="border-bottom:2px solid var(--border); color:var(--text-muted);">
+                                        <th style="padding:8px 6px; text-align:left; white-space:nowrap;">#</th>
+                                        <th style="padding:8px 6px; text-align:left; white-space:nowrap;"><%= t('settings.routingAction') %></th>
+                                        <th style="padding:8px 6px; text-align:left; white-space:nowrap;"><%= t('settings.routingType') %></th>
+                                        <th style="padding:8px 6px; text-align:left; width:100%;"><%= t('settings.routingValue') %></th>
+                                        <th style="padding:8px 6px; text-align:left; min-width:120px;"><%= t('settings.routingComment') %></th>
+                                        <th style="padding:8px 6px; text-align:center; white-space:nowrap;"><%= t('settings.routingEnabled2') %></th>
+                                        <th style="padding:8px 6px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rulesBody"></tbody>
+                            </table>
+                            <div id="rulesEmpty" style="display:none; text-align:center; padding:24px; color:var(--text-muted); font-size:13px;">
+                                <i class="ti ti-inbox"></i> No rules. Add manually or pick a preset.
+                            </div>
+                        </div>
+                    </div>
+
+                    <%# ======== DNS settings ======== %>
+                    <div class="form-section" style="margin-bottom:1.5rem;">
+                        <h3><%= t('settings.routingDns') %></h3>
+                        <p class="hint" style="margin-bottom:12px;"><%= t('settings.routingDnsHint') %></p>
+                        <div class="settings-grid">
+                            <div class="form-group">
+                                <label><%= t('settings.routingDnsDomestic') %></label>
+                                <input type="text" name="routing.dns.domestic" id="routingDnsDomestic"
+                                       value="<%= settings?.routing?.dns?.domestic || '77.88.8.8' %>"
+                                       placeholder="77.88.8.8">
+                                <small class="hint"><%= t('settings.routingDnsDomesticHint') %></small>
+                            </div>
+                            <div class="form-group">
+                                <label><%= t('settings.routingDnsRemote') %></label>
+                                <input type="text" name="routing.dns.remote" id="routingDnsRemote"
+                                       value="<%= settings?.routing?.dns?.remote || 'tls://1.1.1.1' %>"
+                                       placeholder="tls://1.1.1.1">
+                                <small class="hint"><%= t('settings.routingDnsRemoteHint') %></small>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><%# /routingBody %>
+
+                <div style="display:flex; justify-content:flex-end; margin-top:1.25rem;">
+                    <button type="submit" class="btn btn-primary" style="padding:0.75rem 2rem;">
+                        <i class="ti ti-device-floppy"></i> <%= t('common.save') %>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+#tab-routing .presets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+#tab-routing .preset-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--bg-secondary);
+    user-select: none;
+}
+#tab-routing .preset-card:hover { border-color: var(--accent); background: rgba(59,130,246,0.05); }
+#tab-routing .preset-card:active { transform: scale(0.98); }
+#tab-routing .preset-card.flash { border-color: var(--success, #22c55e); background: rgba(34,197,94,0.08); }
+#tab-routing .preset-icon { font-size: 20px; margin-bottom: 6px; }
+#tab-routing .preset-icon i { font-size: 20px; }
+#tab-routing .preset-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+#tab-routing .preset-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+#rulesTable td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+#rulesTable tbody tr:last-child td { border-bottom: none; }
+#rulesTable select, #rulesTable input[type="text"] {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 4px 6px;
+}
+#rulesTable select:focus, #rulesTable input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.action-badge-direct { background: rgba(34,197,94,0.15); color: #22c55e; }
+.action-badge-block  { background: rgba(239,68,68,0.15); color: #ef4444; }
+.rule-num { color: var(--text-muted); font-size: 11px; width: 24px; text-align: right; }
+.rule-del-btn {
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; padding: 2px 4px; font-size: 14px; line-height: 1;
+    transition: color 0.15s;
+}
+.rule-del-btn:hover { color: #ff6b6b; }
+</style>
+
+<script>
+(function() {
+    const CONFIRM_REPLACE = <%- JSON.stringify(t('settings.replaceRulesConfirm')) %>;
+
+    const PRESETS = {
+        'bypass-ru': [
+            { action: 'direct', type: 'geosite',        value: 'category-ru',   comment: 'Russian sites DB', enabled: true },
+            { action: 'direct', type: 'geoip',          value: 'ru',            comment: 'Russian IPs',      enabled: true },
+            { action: 'direct', type: 'domain_suffix',  value: '.ru',           comment: '',                 enabled: true },
+            { action: 'direct', type: 'domain_suffix',  value: '.su',           comment: '',                 enabled: true },
+            { action: 'direct', type: 'domain_suffix',  value: '.xn--p1ai',     comment: '.рф',              enabled: true },
+            { action: 'direct', type: 'domain',         value: 'match.tv',      comment: '',                 enabled: true },
+            { action: 'direct', type: 'domain',         value: 'ntvplus.tv',    comment: '',                 enabled: true },
+            { action: 'direct', type: 'domain',         value: 'ozon.travel',   comment: '',                 enabled: true },
+            { action: 'direct', type: 'domain',         value: 'lenta.tech',    comment: '',                 enabled: true },
+            { action: 'direct', type: 'geoip',          value: 'private',       comment: 'LAN',              enabled: true },
+        ],
+        'bypass-cn': [
+            { action: 'direct', type: 'geosite',       value: 'cn',            comment: 'Chinese sites DB', enabled: true },
+            { action: 'direct', type: 'geoip',         value: 'cn',            comment: 'Chinese IPs',      enabled: true },
+            { action: 'direct', type: 'geoip',         value: 'private',       comment: 'LAN',              enabled: true },
+        ],
+        'block-ads': [
+            { action: 'block', type: 'geosite', value: 'category-ads-all', comment: 'Ad networks', enabled: true },
+        ],
+        'bypass-lan': [
+            { action: 'direct', type: 'geoip', value: 'private', comment: 'LAN', enabled: true },
+        ],
+        'clear': [],
+    };
+
+    const TYPE_LABELS = {
+        domain_suffix:   <%- JSON.stringify(t('settings.routingTypeDomainSuffix')) %>,
+        domain_keyword:  <%- JSON.stringify(t('settings.routingTypeDomainKeyword')) %>,
+        domain:          <%- JSON.stringify(t('settings.routingTypeDomain')) %>,
+        geosite:         <%- JSON.stringify(t('settings.routingTypeGeosite')) %>,
+        geoip:           <%- JSON.stringify(t('settings.routingTypeGeoip')) %>,
+        ip_cidr:         <%- JSON.stringify(t('settings.routingTypeIpCidr')) %>,
+    };
+
+    // Initial rules from DB (safe JSON embed — escape closing script tags)
+    let rules = <%- JSON.stringify((settings?.routing?.rules || []).map(r => ({
+        action:  r.action  || 'direct',
+        type:    r.type    || 'geosite',
+        value:   r.value   || '',
+        comment: r.comment || '',
+        enabled: r.enabled !== false,
+    }))).replace(/</g, '\\u003c') %>;
+
+    function syncJson() {
+        document.getElementById('routingRulesJson').value = JSON.stringify(rules);
+    }
+
+    function renderRules() {
+        const tbody = document.getElementById('rulesBody');
+        const empty = document.getElementById('rulesEmpty');
+
+        if (rules.length === 0) {
+            tbody.innerHTML = '';
+            empty.style.display = '';
+            syncJson();
+            return;
+        }
+        empty.style.display = 'none';
+
+        tbody.innerHTML = rules.map((r, i) => `
+            <tr data-idx="${i}">
+                <td><span class="rule-num">${i + 1}</span></td>
+                <td>
+                    <select onchange="updateRule(${i}, 'action', this.value)" style="width:70px;">
+                        <option value="direct" ${r.action === 'direct' ? 'selected' : ''}>direct</option>
+                        <option value="block"  ${r.action === 'block'  ? 'selected' : ''}>block</option>
+                    </select>
+                </td>
+                <td>
+                    <select onchange="updateRule(${i}, 'type', this.value)" style="min-width:110px;">
+                        ${Object.entries(TYPE_LABELS).map(([k, v]) => `<option value="${k}" ${r.type === k ? 'selected' : ''}>${v}</option>`).join('')}
+                    </select>
+                </td>
+                <td>
+                    <input type="text" value="${escHtml(r.value)}" oninput="updateRule(${i}, 'value', this.value)"
+                           style="width:100%; min-width:120px;" placeholder="category-ru / .ru / 1.2.3.0/24">
+                </td>
+                <td>
+                    <input type="text" value="${escHtml(r.comment)}" oninput="updateRule(${i}, 'comment', this.value)"
+                           style="width:100%; min-width:90px;" placeholder="">
+                </td>
+                <td style="text-align:center;">
+                    <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="updateRule(${i}, 'enabled', this.checked)">
+                </td>
+                <td>
+                    <button type="button" class="rule-del-btn" onclick="deleteRule(${i})"><i class="ti ti-x"></i></button>
+                </td>
+            </tr>
+        `).join('');
+
+        syncJson();
+    }
+
+    window.updateRule = function(i, field, val) {
+        rules[i][field] = val;
+        // Re-render row numbers only (no full re-render to preserve focus)
+        syncJson();
+    };
+
+    window.deleteRule = function(i) {
+        rules.splice(i, 1);
+        renderRules();
+    };
+
+    window.addRoutingRule = function() {
+        rules.push({ action: 'direct', type: 'geosite', value: '', comment: '', enabled: true });
+        renderRules();
+        // Scroll to bottom of table and focus the value input
+        const tbody = document.getElementById('rulesBody');
+        const lastRow = tbody.lastElementChild;
+        if (lastRow) {
+            const valueInput = lastRow.querySelector('input[type="text"]');
+            if (valueInput) { valueInput.focus(); }
+            lastRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    };
+
+    window.applyRoutingPreset = function(key, el) {
+        const preset = PRESETS[key];
+        if (preset === undefined) return;
+        if (key !== 'clear' && rules.length > 0 && !confirm(CONFIRM_REPLACE)) return;
+        rules = preset.map(r => ({ ...r }));
+        renderRules();
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 800);
+    };
+
+    window.toggleRoutingEnabled = function() {
+        const checked = document.getElementById('routingMasterSwitch').checked;
+        document.getElementById('routingBody').style.display = checked ? '' : 'none';
+    };
+
+    function escHtml(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Initial render
+    renderRules();
+})();
+</script>

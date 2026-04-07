@@ -129,6 +129,30 @@ router.post('/settings', async (req, res) => {
                 .map(b => ({ label: String(b.label).trim(), url: String(b.url).trim(), icon: String(b.icon || '').trim() }));
         }
 
+        // Routing settings
+        if (req.body['_routingSettings'] !== undefined) {
+            updates['routing.enabled'] = req.body['routing.enabled'] === 'on';
+            updates['routing.dns.domestic'] = (req.body['routing.dns.domestic'] || '77.88.8.8').trim();
+            updates['routing.dns.remote']   = (req.body['routing.dns.remote']   || 'tls://1.1.1.1').trim();
+            let parsedRules = [];
+            try { parsedRules = JSON.parse(req.body['routing.rulesJson'] || '[]'); } catch {}
+            if (!Array.isArray(parsedRules)) parsedRules = [];
+            const VALID_ACTIONS = ['direct', 'block'];
+            const VALID_TYPES   = ['domain_suffix', 'domain_keyword', 'domain', 'geosite', 'geoip', 'ip_cidr'];
+            updates['routing.rules'] = parsedRules
+                .filter(r => r && VALID_ACTIONS.includes(r.action) && VALID_TYPES.includes(r.type) && r.value)
+                .slice(0, 200)
+                .map(r => ({
+                    action:  r.action,
+                    type:    r.type,
+                    value:   String(r.value).trim(),
+                    comment: String(r.comment || '').trim().slice(0, 100),
+                    enabled: r.enabled !== false,
+                }));
+            // Invalidate all cached subscriptions so clients receive updated rules immediately
+            await cache.invalidateAllSubscriptions();
+        }
+
         // Backup settings
         if (req.body['_backupSettings'] || req.body['backup.enabled'] !== undefined) {
             updates['backup.enabled'] = req.body['backup.enabled'] === 'on';

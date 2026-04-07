@@ -1,11 +1,11 @@
 /**
- * API подписок Hysteria 2
+ * Subscription API (Hysteria 2 + VLESS)
  * 
- * Единый роут /api/files/:token:
- * - Браузер → HTML страница
- * - Приложение → подписка в нужном формате
+ * Single route /api/files/:token:
+ * - Browser → HTML page
+ * - App → subscription in the appropriate format
  * 
- * С кэшированием в Redis для высокой производительности
+ * With Redis caching for high performance
  */
 
 const express = require('express');
@@ -21,12 +21,13 @@ const { getNodesByGroups, getSettings, parseDurationSeconds, normalizeHopInterva
 
 function detectFormat(userAgent) {
     const ua = (userAgent || '').toLowerCase();
-    // Shadowrocket ожидает base64-encoded URI list
+    // Shadowrocket expects base64-encoded URI list
     if (/shadowrocket/.test(ua)) return 'shadowrocket';
-    // Happ (Xray-core) ожидает plain URI list
-    if (/happ/.test(ua)) return 'uri';
-    // sing-box based clients — проверяем ДО clash, т.к. Hiddify UA содержит "ClashMeta"
-    // Пример: "HiddifyNext/4.0.5 (android) like ClashMeta v2ray sing-box"
+    // HAPP (Xray-core based) — receives full v2ray JSON with routing rules
+    // NOTE: Click-Connect app sends UA "v2rayN/6.60" — it must NOT match here (different pattern)
+    if (/happ/.test(ua)) return 'v2ray-json';
+    // sing-box based clients — checked BEFORE clash because Hiddify UA contains "ClashMeta"
+    // Example: "HiddifyNext/4.0.5 (android) like ClashMeta v2ray sing-box"
     if (/hiddify|hiddifynext|sing-?box|nekobox|nekoray|neko|sfi|sfa|sfm|sft|karing/.test(ua)) return 'singbox';
     if (/clash|stash|surge|loon/.test(ua)) return 'clash';
     return 'uri';
@@ -39,7 +40,7 @@ function isBrowser(req) {
 }
 
 async function getUserByToken(token) {
-    // Один запрос вместо двух (оптимизация)
+    // Single query instead of two (optimization)
     const user = await HyUser.findOne({
         $or: [
             { subscriptionToken: token },
@@ -53,28 +54,28 @@ async function getUserByToken(token) {
 }
 
 /**
- * Получить название подписки для пользователя
- * Берётся subscriptionTitle первой группы или name группы
+ * Get subscription title for a user.
+ * Takes subscriptionTitle from the first group, or the group name.
  */
 function getSubscriptionTitle(user) {
     if (!user.groups || user.groups.length === 0) {
         return 'Hysteria';
     }
     
-    // Берём первую группу
+    // Take the first group
     const group = user.groups[0];
     return group.subscriptionTitle || group.name || 'Hysteria';
 }
 
 /**
- * Кодирует название в base64 (как в Marzban)
+ * Encode title in base64 (Marzban-compatible format)
  */
 function encodeTitle(text) {
     return `base64:${Buffer.from(text).toString('base64')}`;
 }
 
 /**
- * Получить активные ноды (с кэшированием)
+ * Get active nodes (with caching)
  */
 async function getActiveNodesWithCache() {
     const cached = await cache.getActiveNodes();
@@ -128,7 +129,7 @@ async function getActiveNodes(user) {
         }
     }
 
-    // Фильтрация перегруженных нод (если включено)
+    // Filter overloaded nodes (if enabled)
     if (lb.hideOverloaded) {
         const beforeFilter = nodes.length;
         nodes = nodes.filter(n => {
@@ -140,7 +141,7 @@ async function getActiveNodes(user) {
         }
     }
     
-    // Логируем статусы нод (debug уровень для снижения нагрузки)
+    // Log node statuses (debug level to reduce overhead)
     if (nodes.length > 0) {
         const statuses = nodes.map(n => `${n.name}:${n.status}(${n.onlineUsers}/${n.maxOnlineUsers || '∞'})`).join(', ');
         logger.debug(`[Sub] Nodes for ${user.userId}: ${statuses}`);
@@ -206,7 +207,7 @@ function getNodeConfigs(node) {
         });
     } else {
         configs.push({ name: 'TLS', host, port: node.port || 443, portRange: '', hopInterval, sni, hasCert, obfs, obfsPassword });
-        // Порт 80 убран (используется для ACME)
+        // Port 80 removed (used for ACME)
         if (node.portRange) {
             configs.push({ name: 'Hopping', host, port: node.port || 443, portRange: node.portRange, hopInterval, sni, hasCert, obfs, obfsPassword });
         }
@@ -219,7 +220,7 @@ function getNodeConfigs(node) {
 // ==================== URI GENERATION ====================
 
 function generateURI(user, node, config) {
-    // Auth содержит userId для идентификации на сервере
+    // Auth contains userId for server-side identification
     const auth = `${user.userId}:${user.password}`;
     const params = [];
     
@@ -304,6 +305,187 @@ function generateVlessURI(user, node) {
     return `vless://${uuid}@${host}:${port}?${params.toString()}#${encodeURIComponent(name)}`;
 }
 
+// ==================== ROUTING RULE CONVERTERS ====================
+
+/**
+ * Convert routing rules array from DB to Xray routing rules array.
+ * Rules of the same action and field type are grouped for efficiency.
+ */
+function buildXrayRules(rules) {
+    if (!rules || rules.length === 0) return [];
+
+    const xrayRules = [];
+    // Group consecutive rules of the same action into domain/ip buckets
+    // to produce minimal rule objects (one object per action+fieldType pair)
+    const domainRulesByAction = { direct: [], block: [] };
+    const ipRulesByAction     = { direct: [], block: [] };
+    // We process in order and flush when action changes
+    const domainTypes = new Set(['domain_suffix', 'domain_keyword', 'domain', 'geosite']);
+    const ipTypes     = new Set(['geoip', 'ip_cidr']);
+
+    for (const r of rules) {
+        if (!r.enabled) continue;
+        const action = r.action === 'block' ? 'block' : 'direct';
+
+        if (domainTypes.has(r.type)) {
+            let xrayVal;
+            if      (r.type === 'domain_suffix')  xrayVal = `domain:${r.value.replace(/^\./, '')}`;
+            else if (r.type === 'domain_keyword')  xrayVal = `keyword:${r.value}`;
+            else if (r.type === 'domain')          xrayVal = `full:${r.value}`;
+            else                                   xrayVal = `geosite:${r.value}`;
+            domainRulesByAction[action].push(xrayVal);
+        } else if (ipTypes.has(r.type)) {
+            let xrayVal = r.type === 'geoip' ? `geoip:${r.value}` : r.value;
+            ipRulesByAction[action].push(xrayVal);
+        }
+    }
+
+    for (const action of ['direct', 'block']) {
+        if (domainRulesByAction[action].length > 0) {
+            xrayRules.push({ type: 'field', domain: domainRulesByAction[action], outboundTag: action });
+        }
+        if (ipRulesByAction[action].length > 0) {
+            xrayRules.push({ type: 'field', ip: ipRulesByAction[action], outboundTag: action });
+        }
+    }
+    return xrayRules;
+}
+
+/**
+ * Build Xray split-DNS servers array from routing rules + dns settings.
+ * Domestic domains get routed to domestic DNS server.
+ */
+function buildXrayDns(rules, dns) {
+    const domesticDns = (dns && dns.domestic) ? dns.domestic : '77.88.8.8';
+    const remoteDns   = (dns && dns.remote)   ? dns.remote   : '1.1.1.1';
+
+    const domesticDomains = [];
+    for (const r of (rules || [])) {
+        if (!r.enabled || r.action !== 'direct') continue;
+        if (r.type === 'domain_suffix')  domesticDomains.push(`domain:${r.value.replace(/^\./, '')}`);
+        else if (r.type === 'domain')    domesticDomains.push(`full:${r.value}`);
+        else if (r.type === 'geosite')   domesticDomains.push(`geosite:${r.value}`);
+    }
+
+    const servers = [];
+    if (domesticDomains.length > 0) {
+        servers.push({ address: domesticDns, domains: domesticDomains });
+    }
+    servers.push(remoteDns);
+    servers.push('8.8.8.8');
+    return servers;
+}
+
+/**
+ * Convert routing rules to sing-box route.rules array entries.
+ * Groups rules by action+type for efficiency.
+ */
+function buildSingboxRules(rules) {
+    if (!rules || rules.length === 0) return [];
+
+    const buckets = {};
+    const order   = [];
+
+    for (const r of rules) {
+        if (!r.enabled) continue;
+        const action = r.action === 'block' ? 'block' : 'direct';
+        const key = `${action}:${r.type}`;
+
+        if (!buckets[key]) {
+            buckets[key] = { outbound: action, _type: r.type, values: [] };
+            order.push(key);
+        }
+        buckets[key].values.push(r.value);
+    }
+
+    return order.map(k => {
+        const b = buckets[k];
+        const rule = { outbound: b.outbound };
+        switch (b._type) {
+            case 'domain_suffix':  rule.domain_suffix  = b.values; break;
+            case 'domain_keyword': rule.domain_keyword = b.values; break;
+            case 'domain':         rule.domain         = b.values; break;
+            case 'geosite':        rule.geosite        = b.values; break;
+            case 'geoip':          rule.geoip          = b.values; break;
+            case 'ip_cidr':        rule.ip_cidr        = b.values; break;
+        }
+        return rule;
+    });
+}
+
+/**
+ * Build sing-box DNS servers+rules for split DNS.
+ */
+function buildSingboxDns(rules, dns) {
+    const domesticAddr = (dns && dns.domestic) ? dns.domestic : '77.88.8.8';
+    const remoteAddr   = (dns && dns.remote)   ? dns.remote   : 'tls://1.1.1.1';
+
+    const servers = [
+        { tag: 'dns-remote', address: remoteAddr,   address_resolver: 'dns-local' },
+        { tag: 'dns-direct', address: domesticAddr, detour: 'direct' },
+        { tag: 'dns-local',  address: domesticAddr, detour: 'direct' },
+        { tag: 'dns-block',  address: 'rcode://refused' },
+    ];
+
+    const dnsRules = [{ outbound: 'any', server: 'dns-local' }];
+
+    const suffixes = [], geosites = [];
+    for (const r of (rules || [])) {
+        if (!r.enabled || r.action !== 'direct') continue;
+        if (r.type === 'domain_suffix') suffixes.push(r.value);
+        if (r.type === 'geosite')       geosites.push(r.value);
+    }
+    if (suffixes.length > 0) dnsRules.push({ domain_suffix: suffixes, server: 'dns-direct' });
+    if (geosites.length > 0) dnsRules.push({ geosite: geosites,       server: 'dns-direct' });
+
+    return { servers, rules: dnsRules, final: 'dns-remote' };
+}
+
+/**
+ * Convert routing rules to Clash Meta rules array strings.
+ */
+function buildClashRules(rules) {
+    if (!rules || rules.length === 0) return [];
+
+    const result = [];
+    for (const r of rules) {
+        if (!r.enabled) continue;
+        const target = r.action === 'block' ? 'REJECT' : 'DIRECT';
+        switch (r.type) {
+            case 'domain_suffix':  result.push(`DOMAIN-SUFFIX,${r.value},${target}`); break;
+            case 'domain_keyword': result.push(`DOMAIN-KEYWORD,${r.value},${target}`); break;
+            case 'domain':         result.push(`DOMAIN,${r.value},${target}`); break;
+            case 'geosite':        result.push(`GEOSITE,${r.value},${target}`); break;
+            case 'geoip':          result.push(`GEOIP,${r.value},${target},no-resolve`); break;
+            case 'ip_cidr':        result.push(`IP-CIDR,${r.value},${target},no-resolve`); break;
+        }
+    }
+    return result;
+}
+
+/**
+ * Build Clash DNS section for split DNS.
+ */
+function buildClashDns(rules, dns) {
+    const domestic = (dns && dns.domestic) ? dns.domestic : '77.88.8.8';
+    const remote   = (dns && dns.remote)   ? dns.remote   : 'tls://1.1.1.1';
+
+    const policy = {};
+    for (const r of (rules || [])) {
+        if (!r.enabled || r.action !== 'direct') continue;
+        if (r.type === 'domain_suffix') policy[`+${r.value}`]    = domestic;
+        if (r.type === 'geosite')       policy[`geosite:${r.value}`] = domestic;
+    }
+
+    return {
+        enable: true,
+        ipv6: false,
+        'default-nameserver': [domestic],
+        nameserver: [remote],
+        'nameserver-policy': Object.keys(policy).length > 0 ? policy : undefined,
+    };
+}
+
 // ==================== FORMAT GENERATORS ====================
 
 function generateURIList(user, nodes) {
@@ -381,7 +563,7 @@ function _buildClashVlessProxy(user, node) {
     return { name, proxy };
 }
 
-function generateClashYAML(user, nodes) {
+function generateClashYAML(user, nodes, routing) {
     const auth = `${user.userId}:${user.password}`;
     const proxies = [];
     const proxyNames = [];
@@ -419,7 +601,31 @@ function generateClashYAML(user, nodes) {
         }
     });
     
-    return `proxies:\n${proxies.join('\n')}\n\nproxy-groups:\n  - name: "Proxy"\n    type: select\n    proxies:\n${proxyNames.map(n => `      - "${n}"`).join('\n')}\n`;
+    let yaml = `proxies:\n${proxies.join('\n')}\n\nproxy-groups:\n  - name: "Proxy"\n    type: select\n    proxies:\n${proxyNames.map(n => `      - "${n}"`).join('\n')}\n`;
+
+    if (routing && routing.enabled && routing.rules && routing.rules.length > 0) {
+        const clashDns = buildClashDns(routing.rules, routing.dns);
+        const dnsLines = ['dns:', '  enable: true', '  ipv6: false'];
+        dnsLines.push(`  default-nameserver:\n    - ${clashDns['default-nameserver'][0]}`);
+        dnsLines.push(`  nameserver:\n    - ${clashDns.nameserver[0]}`);
+        const policy = clashDns['nameserver-policy'];
+        if (policy && Object.keys(policy).length > 0) {
+            dnsLines.push('  nameserver-policy:');
+            for (const [k, v] of Object.entries(policy)) {
+                dnsLines.push(`    "${k}": "${v}"`);
+            }
+        }
+        yaml += '\n' + dnsLines.join('\n') + '\n';
+
+        const clashRules = buildClashRules(routing.rules);
+        if (clashRules.length > 0) {
+            yaml += '\nrules:\n';
+            yaml += clashRules.map(r => `  - ${r}`).join('\n') + '\n';
+            yaml += '  - MATCH,Proxy\n';
+        }
+    }
+
+    return yaml;
 }
 
 function _buildSingboxVlessOutbound(user, node) {
@@ -487,7 +693,141 @@ function _buildSingboxVlessOutbound(user, node) {
     return { tag, outbound };
 }
 
-function generateSingboxJSON(user, nodes) {
+/**
+ * Generate full Xray-compatible JSON config for HAPP and v2rayNG clients.
+ * Includes VLESS and Hysteria2 outbounds (if Xray-core supports it), routing rules and split DNS.
+ */
+function generateV2rayJSON(user, nodes, routing) {
+    const auth = `${user.userId}:${user.password}`;
+    const outbounds = [];
+    const allTags = [];
+
+    // Build proxy outbounds
+    nodes.forEach(node => {
+        if (node.type === 'xray') {
+            if (!user.xrayUuid) return;
+            const xray = node.xray || {};
+            const host = node.domain || node.ip;
+            const transport = xray.transport || 'tcp';
+            const security = xray.security || 'reality';
+            const transportLabel = { tcp: security === 'reality' ? 'Reality' : 'TCP', ws: 'WebSocket', grpc: 'gRPC', xhttp: 'XHTTP' }[transport] || transport;
+            const tag = `${node.flag || ''} ${node.name} ${transportLabel}`.trim();
+
+            const streamSettings = { network: transport === 'xhttp' ? 'splithttp' : transport };
+
+            if (security === 'reality') {
+                const sni = xray.realitySni && xray.realitySni[0] ? xray.realitySni[0] : '';
+                const shortIds = xray.realityShortIds || [''];
+                const sid = shortIds.find(id => id && id.length > 0) || shortIds[0] || '';
+                streamSettings.security = 'reality';
+                streamSettings.realitySettings = {
+                    fingerprint: xray.fingerprint || 'chrome',
+                    serverName: sni,
+                    publicKey: xray.realityPublicKey || '',
+                    shortId: sid,
+                    spiderX: xray.realitySpiderX || '',
+                };
+            } else if (security === 'tls') {
+                streamSettings.security = 'tls';
+                streamSettings.tlsSettings = {
+                    serverName: node.domain || node.sni || host,
+                    fingerprint: xray.fingerprint || 'chrome',
+                };
+                if (xray.alpn && xray.alpn.length > 0) {
+                    streamSettings.tlsSettings.alpn = xray.alpn;
+                }
+            }
+
+            if (transport === 'ws') {
+                streamSettings.wsSettings = { path: xray.wsPath || '/', headers: xray.wsHost ? { Host: xray.wsHost } : {} };
+            } else if (transport === 'grpc') {
+                streamSettings.grpcSettings = { serviceName: xray.grpcServiceName || 'grpc', multiMode: false };
+            } else if (transport === 'xhttp') {
+                streamSettings.splithttpSettings = { path: xray.xhttpPath || '/', host: xray.xhttpHost || '' };
+            }
+
+            const vnextUser = { id: user.xrayUuid, encryption: 'none' };
+            if (transport === 'tcp' && (security === 'reality' || security === 'tls') && xray.flow) {
+                vnextUser.flow = xray.flow;
+            }
+
+            outbounds.push({
+                tag,
+                protocol: 'vless',
+                settings: { vnext: [{ address: host, port: node.port || 443, users: [vnextUser] }] },
+                streamSettings,
+            });
+            allTags.push(tag);
+        } else {
+            // Hysteria2 via Xray-core (supported since Feb 2026)
+            getNodeConfigs(node).forEach(cfg => {
+                const tag = `${node.flag || ''} ${node.name} ${cfg.name}`.trim();
+                const hy2Settings = {
+                    address: cfg.host,
+                    port: cfg.port,
+                    password: auth,
+                };
+                if (!cfg.hasCert) hy2Settings.allowInsecure = true;
+                if (cfg.sni) hy2Settings.serverName = cfg.sni;
+                if (cfg.obfs === 'salamander' && cfg.obfsPassword) {
+                    hy2Settings.obfs = { type: 'salamander', password: cfg.obfsPassword };
+                }
+                outbounds.push({
+                    tag,
+                    protocol: 'hysteria2',
+                    settings: hy2Settings,
+                });
+                allTags.push(tag);
+            });
+        }
+    });
+
+    outbounds.push({ tag: 'direct', protocol: 'freedom',   settings: {} });
+    outbounds.push({ tag: 'block',  protocol: 'blackhole',  settings: { response: { type: 'http' } } });
+
+    // Routing rules
+    const routingRules = [
+        { type: 'field', port: '53', outboundTag: 'direct' },
+    ];
+
+    if (routing && routing.enabled && routing.rules && routing.rules.length > 0) {
+        routingRules.push(...buildXrayRules(routing.rules));
+    }
+
+    // Final rule: all remaining traffic through first proxy
+    // (This is implicit in Xray when we set the routing config tag for balancer/urltest — use first tag as default)
+    const dnsServers = (routing && routing.enabled && routing.rules)
+        ? buildXrayDns(routing.rules, routing.dns)
+        : ['1.1.1.1', '8.8.8.8'];
+
+    return {
+        log: { loglevel: 'warning' },
+        dns: { servers: dnsServers },
+        inbounds: [
+            {
+                tag: 'socks-in',
+                port: 10808,
+                protocol: 'socks',
+                settings: { auth: 'noauth', udp: true },
+                sniffing: { enabled: true, destOverride: ['http', 'tls', 'quic'] },
+            },
+            {
+                tag: 'http-in',
+                port: 10809,
+                protocol: 'http',
+                settings: {},
+                sniffing: { enabled: true, destOverride: ['http', 'tls'] },
+            },
+        ],
+        outbounds,
+        routing: {
+            domainStrategy: 'IPIfNonMatch',
+            rules: routingRules,
+        },
+    };
+}
+
+function generateSingboxJSON(user, nodes, routing) {
     const auth = `${user.userId}:${user.password}`;
     const proxyOutbounds = [];
     const tags = [];
@@ -546,10 +886,10 @@ function generateSingboxJSON(user, nodes) {
         { type: 'dns', tag: 'dns-out' },
     ];
 
-    // Полная структура sing-box — требуется Hiddify и другим клиентам для распознавания формата
-    return {
-        log: { level: 'warn', timestamp: true },
-        dns: {
+    // Build sing-box DNS section (split DNS when routing enabled)
+    const dnsSection = (routing && routing.enabled && routing.rules && routing.rules.length > 0)
+        ? buildSingboxDns(routing.rules, routing.dns)
+        : {
             servers: [
                 { tag: 'dns-remote', address: 'tls://8.8.8.8', address_resolver: 'dns-local' },
                 { tag: 'dns-local', address: '223.5.5.5', detour: 'direct' },
@@ -559,7 +899,22 @@ function generateSingboxJSON(user, nodes) {
                 { outbound: 'any', server: 'dns-local' },
             ],
             final: 'dns-remote',
-        },
+        };
+
+    // Build route.rules (inject custom rules between sniff and final)
+    const routeRules = [
+        { protocol: 'dns', outbound: 'dns-out' },
+        { inbound: 'tun-in', action: 'sniff' },
+        { ip_is_private: true, outbound: 'direct' },
+    ];
+    if (routing && routing.enabled && routing.rules && routing.rules.length > 0) {
+        routeRules.push(...buildSingboxRules(routing.rules));
+    }
+
+    // Full sing-box structure — required by Hiddify and other clients for format detection
+    return {
+        log: { level: 'warn', timestamp: true },
+        dns: dnsSection,
         inbounds: [
             {
                 type: 'tun',
@@ -575,10 +930,7 @@ function generateSingboxJSON(user, nodes) {
         ],
         outbounds,
         route: {
-            rules: [
-                { protocol: 'dns', outbound: 'dns-out' },
-                { inbound: 'tun-in', action: 'sniff' },
-            ],
+            rules: routeRules,
             final: 'proxy',
             auto_detect_interface: true,
         },
@@ -588,7 +940,7 @@ function generateSingboxJSON(user, nodes) {
 // ==================== HTML PAGE ====================
 
 async function generateHTML(user, nodes, token, baseUrl, settings) {
-    // Собираем все конфиги
+    // Collect all configs
     const allConfigs = [];
     nodes.forEach(node => {
         if (node.type === 'xray') {
@@ -630,7 +982,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         locations.get(cfg.location).configs.push({ name: cfg.name, uri: cfg.uri });
     });
 
-    // Кастомизация из настроек
+    // Customization from settings
     const sub = settings?.subscription || {};
     const logoUrl   = sub.logoUrl   || '';
     const pageTitle = sub.pageTitle || 'Подключение';
@@ -800,7 +1152,7 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
     <div class="toast" id="toast"><i class="ti ti-check"></i> Скопировано</div>
     
     <script>
-        // Все URI для копирования
+        // All URIs for copying
         const uris = ${JSON.stringify(allConfigs.map(c => c.uri))};
         
         function copyText(text, btn) {
@@ -856,24 +1208,24 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
 // ==================== MAIN ROUTE ====================
 
 /**
- * GET /files/:token - Единственный роут
- * - Браузер → HTML
- * - Приложение → подписка
+ * GET /files/:token - Single route
+ * - Browser → HTML
+ * - App → subscription
  * 
- * С кэшированием готовых подписок в Redis
+ * With Redis caching for generated subscriptions
  */
 router.get('/files/:token', async (req, res) => {
     try {
         const token = req.params.token;
         const userAgent = req.headers['user-agent'] || 'unknown';
         
-        // Определяем формат
+        // Detect format
         let format = req.query.format;
         const browser = isBrowser(req);
         
-        // Для браузера без format — не кэшируем (HTML со свежими данными)
+        // Browser without format param — don't cache (serve fresh HTML)
         if (browser && !format) {
-            // HTML страница — не кэшируем, показываем свежие данные
+            // HTML page — not cached, show fresh data
             const [user, settings] = await Promise.all([
                 getUserByToken(token),
                 getSettings(),
@@ -900,23 +1252,23 @@ router.get('/files/:token', async (req, res) => {
             return res.type('text/html').send(html);
         }
         
-        // Для приложений — определяем формат и кэшируем
+        // For apps — detect format and cache
         if (!format) {
             format = detectFormat(userAgent);
             logger.debug(`[Sub] UA: "${userAgent}" → format: ${format}`);
         }
         
-        // Читаем настройки (из Redis-кэша — быстро)
+        // Read settings (from Redis cache — fast)
         const settings = await getSettings();
 
-        // Проверяем кэш
+        // Check cache
         const cached = await cache.getSubscription(token, format);
         if (cached) {
             logger.debug(`[Sub] Cache HIT: ${token}:${format}`);
             return sendCachedSubscription(res, cached, format, userAgent, settings);
         }
         
-        // Кэша нет — генерируем
+        // Cache miss — generate
         logger.debug(`[Sub] Cache MISS: token=${token.substring(0,8)}..., format=${format}`);
         
         const user = await getUserByToken(token);
@@ -941,13 +1293,13 @@ router.get('/files/:token', async (req, res) => {
         
         logger.debug(`[Sub] Serving ${nodes.length} nodes to user ${user.userId}`);
         
-        // Генерируем подписку
-        const subscriptionData = generateSubscriptionData(user, nodes, format, userAgent, settings?.subscription?.happProviderId || '');
+        // Generate subscription
+        const subscriptionData = generateSubscriptionData(user, nodes, format, userAgent, settings?.subscription?.happProviderId || '', settings?.routing);
         
-        // Сохраняем в кэш
+        // Save to cache
         await cache.setSubscription(token, format, subscriptionData);
         
-        // Отправляем
+        // Send response
         return sendCachedSubscription(res, subscriptionData, format, userAgent, settings);
         
     } catch (error) {
@@ -957,9 +1309,9 @@ router.get('/files/:token', async (req, res) => {
 });
 
 /**
- * Генерирует данные подписки для кэширования
+ * Generate subscription data for caching
  */
-function generateSubscriptionData(user, nodes, format, userAgent, happProviderId = '') {
+function generateSubscriptionData(user, nodes, format, userAgent, happProviderId = '', routing = null) {
     let content;
     let needsBase64 = false;
     
@@ -970,11 +1322,14 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
             break;
         case 'clash':
         case 'yaml':
-            content = generateClashYAML(user, nodes);
+            content = generateClashYAML(user, nodes, routing);
             break;
         case 'singbox':
         case 'json':
-            content = JSON.stringify(generateSingboxJSON(user, nodes), null, 2);
+            content = JSON.stringify(generateSingboxJSON(user, nodes, routing), null, 2);
+            break;
+        case 'v2ray-json':
+            content = JSON.stringify(generateV2rayJSON(user, nodes, routing), null, 2);
             break;
         case 'uri':
         case 'raw':
@@ -1008,7 +1363,7 @@ function generateSubscriptionData(user, nodes, format, userAgent, happProviderId
 }
 
 /**
- * Отправляет закэшированную подписку
+ * Send cached subscription response
  */
 function sendCachedSubscription(res, data, format, userAgent, settings) {
     let contentType = 'text/plain';
@@ -1020,6 +1375,7 @@ function sendCachedSubscription(res, data, format, userAgent, settings) {
             break;
         case 'singbox':
         case 'json':
+        case 'v2ray-json':
             contentType = 'application/json';
             break;
     }
