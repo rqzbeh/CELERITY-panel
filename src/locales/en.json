@@ -791,7 +791,7 @@
     "routingDnsRemote": "Remote DNS",
     "routingDnsRemoteHint": "Encrypted DNS for proxied traffic (e.g. Cloudflare DoT: tls://1.1.1.1)",
     "routingClientSupport": "Client compatibility",
-    "routingClientSupportDesc": "<strong>Full support:</strong> HAPP (native routing protocol), Clash Meta / Stash (YAML rules).<br><strong>Partial support:</strong> Hiddify / SFA / NekoBox (sing-box JSON — some clients may override rules with their own templates).<br><strong>No support:</strong> v2rayNG, Streisand, Shadowrocket, Click-Connect App — these clients use URI subscriptions which cannot carry routing rules. Users need to configure routing manually.",
+    "routingClientSupportDesc": "<strong>Full support:</strong> HAPP (native routing protocol), Clash Meta / Stash (YAML rules).<br><strong>Partial support:</strong> Hiddify / SFA / NekoBox (sing-box JSON — some clients may override rules with their own templates).<br><strong>No support:</strong> v2rayNG, Streisand, Shadowrocket — these clients use URI subscriptions which cannot carry routing rules. Users need to configure routing manually.",
     "clearRulesConfirm": "Remove all routing rules?"
   },
   "setup": {
