@@ -16,6 +16,7 @@ const HyNode = require('../models/hyNodeModel');
 const cache = require('../services/cacheService');
 const logger = require('../utils/logger');
 const { getNodesByGroups, getSettings, parseDurationSeconds, normalizeHopInterval } = require('../utils/helpers');
+const uaStats = require('../services/uaStatsService');
 
 // ==================== HELPERS ====================
 
@@ -1430,6 +1431,7 @@ router.get('/files/:token', async (req, res) => {
             format = detectFormat(userAgent);
             logger.debug(`[Sub] UA: "${userAgent}" → format: ${format}`);
         }
+        uaStats.track(token, userAgent);
         
         // Read settings (from Redis cache — fast)
         const settings = await getSettings();
