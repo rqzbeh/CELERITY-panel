@@ -18,7 +18,7 @@ const configGenerator = require('./configGenerator');
  * @returns {boolean} true if node appears to be on the same server as the panel
  */
 function isSameVpsAsPanel(node) {
-    const panelDomain = config.PANEL_DOMAIN;
+    const panelDomain = (config.PANEL_DOMAIN || '').toLowerCase().trim();
     
     // 1. Domain match - most reliable indicator
     if (node.domain && node.domain === panelDomain) {
@@ -28,6 +28,10 @@ function isSameVpsAsPanel(node) {
     
     // 2. Localhost / loopback detection
     const nodeIp = (node.ip || '').toLowerCase().trim();
+    if (panelDomain && nodeIp === panelDomain) {
+        logger.debug(`[NodeSetup] Same VPS detected: node IP/host matches panel domain (${nodeIp})`);
+        return true;
+    }
     if (nodeIp === 'localhost' || nodeIp === '127.0.0.1' || nodeIp === '::1') {
         logger.debug(`[NodeSetup] Same VPS detected: localhost IP (${nodeIp})`);
         return true;
@@ -947,17 +951,18 @@ function generateAgentToken() {
  *  1. Download binary from GitHub releases (or fallback URL)
  *  2. Write /etc/cc-agent/config.json with token + TLS settings
  *  3. If TLS: generate self-signed cert with openssl
- *  4. Open port in firewall only for the panel's IP
+ *  4. Open port in firewall for the panel source or local Docker networks
  *  5. Install & start cc-agent.service
  *
  * @param {Object} conn  - Active ssh2 connection
  * @param {Object} node  - Node document
  * @param {string} token - Pre-generated agent token
- * @param {string} panelIp - Panel's outbound IP (for firewall whitelist)
+ * @param {string} panelSource - Panel firewall source (IP/host hint for remote nodes)
+ * @param {boolean} sameVps - Whether the node is on the same VPS as the panel
  * @param {Function} log - Logging callback
  * @returns {{ success, agentVersion }}
  */
-async function installCCAgent(conn, node, token, panelIp, log) {
+async function installCCAgent(conn, node, token, panelSource, sameVps, log) {
     const agentPort = (node.xray || {}).agentPort || 62080;
     const useTls = (node.xray || {}).agentTls !== false;
     const apiPort = (node.xray || {}).apiPort || 61000;
@@ -1062,14 +1067,51 @@ StandardError=journal
 WantedBy=multi-user.target
 EOFSVC
 
-echo "=== [5/5] Opening firewall for panel IP ${panelIp} ==="
-if command -v iptables &> /dev/null; then
-    iptables -I INPUT -p tcp -s ${panelIp} --dport ${agentPort} -j ACCEPT 2>/dev/null || true
-    echo "Done: iptables rule added"
-fi
-if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-    ufw allow from ${panelIp} to any port ${agentPort} proto tcp 2>/dev/null || true
-    echo "Done: ufw rule added"
+echo "=== [5/5] Opening firewall for cc-agent ==="
+if [ "${sameVps ? '1' : '0'}" = "1" ]; then
+    echo "Same-VPS setup detected: allowing loopback and Docker networks"
+    if command -v iptables &> /dev/null; then
+        iptables -I INPUT -p tcp -s 127.0.0.1/32 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+        echo "Done: iptables loopback rule added"
+        if command -v docker &> /dev/null; then
+            docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' 2>/dev/null | while read -r subnet; do
+                if [ -n "$subnet" ]; then
+                    iptables -I INPUT -p tcp -s "$subnet" --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+                    echo "Done: iptables Docker subnet rule added for $subnet"
+                fi
+            done
+        else
+            iptables -I INPUT -p tcp -s 172.16.0.0/12 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+            echo "Done: iptables fallback Docker subnet rule added (172.16.0.0/12)"
+        fi
+    fi
+    if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow from 127.0.0.1 to any port ${agentPort} proto tcp 2>/dev/null || true
+        echo "Done: ufw loopback rule added"
+        if command -v docker &> /dev/null; then
+            docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' 2>/dev/null | while read -r subnet; do
+                if [ -n "$subnet" ]; then
+                    ufw allow from "$subnet" to any port ${agentPort} proto tcp 2>/dev/null || true
+                    echo "Done: ufw Docker subnet rule added for $subnet"
+                fi
+            done
+        else
+            ufw allow from 172.16.0.0/12 to any port ${agentPort} proto tcp 2>/dev/null || true
+            echo "Done: ufw fallback Docker subnet rule added (172.16.0.0/12)"
+        fi
+    fi
+elif [ -n "${panelSource}" ]; then
+    echo "Remote setup detected: allowing panel source ${panelSource}"
+    if command -v iptables &> /dev/null; then
+        iptables -I INPUT -p tcp -s ${panelSource} --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+        echo "Done: iptables panel source rule added"
+    fi
+    if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+        ufw allow from ${panelSource} to any port ${agentPort} proto tcp 2>/dev/null || true
+        echo "Done: ufw panel source rule added"
+    fi
+else
+    echo "WARNING: Panel source is unknown, skipping restrictive firewall rule for cc-agent"
 fi
 
 echo "=== Starting cc-agent ==="
@@ -1115,13 +1157,17 @@ async function setupXrayNodeWithAgent(node, options = {}) {
             log(`Generated agent token: ${agentToken.substring(0, 8)}...`);
         }
 
-        // Determine panel IP from config (the IP the node can reach the panel from)
-        const panelIpRaw = config.BASE_URL || '';
-        const panelIp = panelIpRaw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0] || '0.0.0.0';
-        log(`Panel IP for firewall: ${panelIp}`);
+        // Same-VPS setups must allow Docker bridge traffic to reach the host agent.
+        const sameVps = isSameVpsAsPanel(node);
+        const panelSourceRaw = process.env.PANEL_IP || config.BASE_URL || '';
+        const panelSource = panelSourceRaw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0];
+        log(`Agent firewall mode: ${sameVps ? 'same-vps' : 'remote'}`);
+        if (!sameVps) {
+            log(`Panel source for firewall: ${panelSource || 'not provided'}`);
+        }
 
         log('Installing CC Agent...');
-        const agentResult = await installCCAgent(conn, node, agentToken, panelIp, log);
+        const agentResult = await installCCAgent(conn, node, agentToken, panelSource, sameVps, log);
         result.logs.push(agentResult.output);
 
         if (!agentResult.success) {
