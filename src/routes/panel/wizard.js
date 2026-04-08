@@ -96,7 +96,7 @@ async function ensureStarterAccessBundle(nodeIds) {
     let createdUser = false;
 
     if (!user) {
-        generatedPassword = crypto.randomBytes(18).toString('base64url');
+        generatedPassword = cryptoService.generatePassword('admin');
         user = await HyUser.create({
             userId: 'admin',
             username: 'Administrator',
@@ -270,6 +270,16 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
 
         if (installXray) {
             const xrayPort = parseInt(req.body['xray.port']) || 8443;
+            const xrayTransport   = (req.body['xray.transport']   || 'tcp').trim();
+            const xrayFingerprint = (req.body['xray.fingerprint'] || 'chrome').trim();
+            const xrayFlow        = (req.body['xray.flow']        || '').trim();
+            const xrayRealityDest = (req.body['xray.realityDest'] || 'www.google.com:443').trim();
+            const xrayRealitySni  = (req.body['xray.realitySni']  || 'www.google.com')
+                .split(',').map(s => s.trim()).filter(Boolean);
+            const xrayShortIdsRaw = (req.body['xray.realityShortIds'] || '').trim();
+            const xrayShortIds    = xrayShortIdsRaw
+                ? xrayShortIdsRaw.split(',').map(s => s.trim())
+                : [''];
 
             nodesToCreate.push({
                 type:        'xray',
@@ -280,12 +290,17 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
                 active:      true,
                 cascadeRole: 'standalone',
                 xray: {
-                    transport: 'tcp',
-                    security:  'reality',
-                    apiPort:   61000,
-                    agentPort: 62080,
-                    agentToken: nodeSetup.generateAgentToken(),
-                    agentTls:  true,
+                    transport:        xrayTransport,
+                    security:         'reality',
+                    fingerprint:      xrayFingerprint,
+                    flow:             xrayTransport === 'tcp' ? (xrayFlow || 'xtls-rprx-vision') : '',
+                    realityDest:      xrayRealityDest,
+                    realitySni:       xrayRealitySni,
+                    realityShortIds:  xrayShortIds,
+                    apiPort:          61000,
+                    agentPort:        62080,
+                    agentToken:       nodeSetup.generateAgentToken(),
+                    agentTls:         true,
                 },
             });
         }

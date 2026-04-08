@@ -1024,7 +1024,8 @@ document.getElementById('generateSshKeyBtn')?.addEventListener('click', async fu
             const sibling = (data.nodes || []).find(n => n.type !== type);
             if (sibling) {
                 const protoLabel = sibling.type === 'xray' ? 'Xray VLESS' : 'Hysteria 2';
-                hintText.textContent = protoLabel + ' node already exists at this IP — SSH credentials will be synced automatically.';
+                var siblingMsg = '<%= typeof t !== "undefined" ? t("nodes.siblingExistsHint") : "{protocol} node already exists at this IP — SSH credentials will be synced automatically." %>';
+                hintText.textContent = siblingMsg.replace('{protocol}', protoLabel);
                 hint.style.display = '';
             } else {
                 hint.style.display = 'none';

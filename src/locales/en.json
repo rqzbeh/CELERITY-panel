@@ -277,6 +277,7 @@
     "addPairedProtocol": "Add second protocol on this server",
     "dualProtocol": "Dual protocol",
     "siblingNodeDetected": "SSH settings will sync automatically from the existing node.",
+    "siblingExistsHint": "{protocol} node already exists at this IP — SSH credentials will be synced automatically.",
     "nameAndIpRequired": "Name and IP address are required",
     "sectionProtocol": "Protocol",
     "sectionNetwork": "Network",
@@ -1208,11 +1209,11 @@
     "goToDashboard": "Go to Dashboard",
     "goToNodes": "View Nodes",
     "noProtocolSelected": "Please select at least one protocol.",
-    "credentialsTitle": "Starter credentials",
-    "credentialsDesc": "These credentials are shown once for the automatically created starter VPN user. Store them in a safe place and change the password later if needed.",
+    "credentialsTitle": "Admin starter subscription",
+    "credentialsDesc": "Use this subscription link for the automatically prepared admin starter access.",
     "credentialsUserLabel": "User ID",
-    "credentialsPasswordLabel": "Password",
-    "copyCredentials": "Copy password",
+    "credentialsPasswordLabel": "Subscription link",
+    "copyCredentials": "Copy link",
     "retrySetup": "Retry setup",
     "continueManual": "Go to Panel"
   }

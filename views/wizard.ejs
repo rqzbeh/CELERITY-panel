@@ -466,13 +466,58 @@
                 <i class="ti ti-shield-lock"></i>
                 <%= typeof t !== 'undefined' ? t('wizard.xraySettings') : 'Xray Settings' %>
             </div>
-            <div class="form-group" style="margin-bottom:0;">
+            <div class="form-group" style="margin-bottom:16px;">
                 <label><%= typeof t !== 'undefined' ? t('nodes.port') : 'Port' %> (TCP)</label>
                 <input type="number" name="xray.port" value="<%= defaults.xrayPort %>" min="1" max="65535">
                 <small>
                     <i class="ti ti-alert-triangle" style="color:var(--warning);"></i>
                     <%= typeof t !== 'undefined' ? t('wizard.xrayPortHint') : 'Port 443/tcp is used by the panel (Caddy). Xray defaults to 8443.' %>
                 </small>
+            </div>
+            <div class="wizard-grid" style="margin-bottom:16px;">
+                <div class="form-group" style="margin:0;">
+                    <label><%= typeof t !== 'undefined' ? t('nodes.xrayTransport') : 'Transport' %></label>
+                    <select name="xray.transport" id="wizXrayTransport" onchange="updateWizardXrayFlow()">
+                        <option value="tcp" selected>TCP</option>
+                        <option value="ws">WebSocket</option>
+                        <option value="grpc">gRPC</option>
+                        <option value="xhttp">XHTTP (SplitHTTP)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label><%= typeof t !== 'undefined' ? t('nodes.xrayFingerprint') : 'TLS Fingerprint' %></label>
+                    <select name="xray.fingerprint">
+                        <option value="chrome" selected>Chrome</option>
+                        <option value="firefox">Firefox</option>
+                        <option value="safari">Safari</option>
+                        <option value="ios">iOS</option>
+                        <option value="android">Android</option>
+                        <option value="edge">Edge</option>
+                        <option value="random">Random</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group" id="wizXrayFlowGroup" style="margin-bottom:16px;">
+                <label><%= typeof t !== 'undefined' ? t('nodes.xrayFlow') : 'Flow (XTLS)' %></label>
+                <input type="text" name="xray.flow" value="xtls-rprx-vision" placeholder="xtls-rprx-vision">
+                <small><%= typeof t !== 'undefined' ? t('nodes.xrayFlowHint') : 'Only for TCP + Reality/TLS. Leave empty for WebSocket/gRPC/XHTTP.' %></small>
+            </div>
+            <div class="wizard-grid" style="margin-bottom:16px;">
+                <div class="form-group" style="margin:0;">
+                    <label><%= typeof t !== 'undefined' ? t('nodes.xrayRealityDest') : 'Reality Destination' %></label>
+                    <input type="text" name="xray.realityDest" value="www.google.com:443" placeholder="www.google.com:443">
+                    <small><%= typeof t !== 'undefined' ? t('nodes.xrayRealityDestHint') : 'TLS 1.3 + H2 website to impersonate (host:port)' %></small>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label><%= typeof t !== 'undefined' ? t('nodes.xrayRealitySni') : 'Reality SNI (serverNames)' %></label>
+                    <input type="text" name="xray.realitySni" value="www.google.com" placeholder="www.google.com">
+                    <small><%= typeof t !== 'undefined' ? t('nodes.xrayRealitySniHint') : 'Comma-separated. Must match destination certificate' %></small>
+                </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label><%= typeof t !== 'undefined' ? t('nodes.xrayShortIds') : 'Short IDs' %></label>
+                <input type="text" name="xray.realityShortIds" value="" placeholder=", 0123456789abcdef">
+                <small><%= typeof t !== 'undefined' ? t('nodes.xrayShortIdsHint') : 'Comma-separated hex strings (0-16 chars). Empty string is valid.' %></small>
             </div>
         </div>
 
@@ -625,6 +670,12 @@
     if (chkHy)   chkHy.addEventListener('change', updateSections);
     if (chkXray) chkXray.addEventListener('change', updateSections);
     updateSections();
+
+    window.updateWizardXrayFlow = function () {
+        var sel = document.getElementById('wizXrayTransport');
+        var flowGrp = document.getElementById('wizXrayFlowGroup');
+        if (sel && flowGrp) flowGrp.style.display = sel.value === 'tcp' ? '' : 'none';
+    };
 
     // Prevent submitting with no protocols selected
     const selfhostForm = document.getElementById('selfhost-form');
