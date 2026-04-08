@@ -79,7 +79,6 @@ async function ensureStarterAccessBundle(nodeIds) {
                 name: 'Celerity Primary Access',
                 description: 'Created automatically during onboarding.',
                 color: '#6366f1',
-                active: true,
                 subscriptionTitle: 'C³ CELERITY',
             },
             $set: { active: true },
