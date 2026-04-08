@@ -300,6 +300,9 @@ router.post('/nodes', async (req, res) => {
 
         if (nodeType === 'xray') {
             nodeData.xray = parseXrayFormFields(req.body);
+            if (nodeData.cascadeRole !== 'bridge' && !nodeData.xray.agentToken) {
+                nodeData.xray.agentToken = nodeSetup.generateAgentToken();
+            }
         } else {
             const hyFields = parseHysteriaFormFields(req.body);
             const hyValidationError = validateHysteriaFormFields(hyFields);
@@ -469,6 +472,11 @@ router.get('/nodes/:id', async (req, res) => {
 router.post('/nodes/:id', async (req, res) => {
     const nodeId = req.params.id;
     try {
+        const existingNode = await HyNode.findById(nodeId).select('type xray');
+        if (!existingNode) {
+            return res.redirect('/panel/nodes');
+        }
+
         const { name, ip } = req.body;
 
         if (!name || !ip) {
@@ -513,7 +521,15 @@ router.post('/nodes/:id', async (req, res) => {
         }
 
         if (nodeType === 'xray') {
-            updates.xray = parseXrayFormFields(req.body);
+            updates.xray = {
+                ...((existingNode.xray && typeof existingNode.xray.toObject === 'function')
+                    ? existingNode.xray.toObject()
+                    : (existingNode.xray || {})),
+                ...parseXrayFormFields(req.body),
+            };
+            if ((req.body.cascadeRole || 'standalone') !== 'bridge' && !updates.xray.agentToken) {
+                updates.xray.agentToken = nodeSetup.generateAgentToken();
+            }
         } else {
             const hyFields = parseHysteriaFormFields(req.body);
             const hyValidationError = validateHysteriaFormFields(hyFields);

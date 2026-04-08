@@ -945,6 +945,52 @@ function generateAgentToken() {
 }
 
 /**
+ * Ensure the Xray node has a persisted agent token in MongoDB.
+ * MongoDB remains the source of truth; the installer only consumes the saved token.
+ *
+ * @param {Object} node - Node document
+ * @returns {{ node: Object, token: string, created: boolean }}
+ */
+async function ensureXrayAgentToken(node) {
+    if (node.type !== 'xray') {
+        throw new Error(`Node ${node.name} is not an Xray node`);
+    }
+
+    const existingToken = (node.xray || {}).agentToken;
+    if (existingToken) {
+        return { node, token: existingToken, created: false };
+    }
+
+    const HyNode = require('../models/hyNodeModel');
+    const generatedToken = generateAgentToken();
+
+    const updatedNode = await HyNode.findOneAndUpdate(
+        {
+            _id: node._id,
+            $or: [
+                { 'xray.agentToken': { $exists: false } },
+                { 'xray.agentToken': '' },
+            ],
+        },
+        { $set: { 'xray.agentToken': generatedToken } },
+        { new: true }
+    );
+
+    const freshNode = updatedNode || await HyNode.findById(node._id);
+    const token = freshNode?.xray?.agentToken || '';
+
+    if (!token) {
+        throw new Error(`Could not persist agent token for node ${node.name}`);
+    }
+
+    return {
+        node: freshNode,
+        token,
+        created: !!updatedNode,
+    };
+}
+
+/**
  * Install and configure cc-agent on an Xray node via SSH.
  *
  * Flow:
@@ -1113,7 +1159,20 @@ fi
  * Extends setupXrayNode to also install the agent.
  */
 async function setupXrayNodeWithAgent(node, options = {}) {
-    const result = await setupXrayNode(node, options);
+    let preparedNode = node;
+    let agentToken = '';
+
+    try {
+        const ensured = await ensureXrayAgentToken(node);
+        preparedNode = ensured.node;
+        agentToken = ensured.token;
+    } catch (error) {
+        const line = `[${new Date().toISOString()}] Agent token error: ${error.message}`;
+        logger.error(`[AgentSetup] ${error.message}`);
+        return { success: false, error: error.message, logs: [line] };
+    }
+
+    const result = await setupXrayNode(preparedNode, options);
 
     if (!result.success) {
         return result;
@@ -1127,18 +1186,15 @@ async function setupXrayNodeWithAgent(node, options = {}) {
 
     let conn;
     try {
-        log('Connecting via SSH for agent installation...');
-        conn = await connectSSH(node);
-
-        // Generate agent token if not set
-        let agentToken = (node.xray || {}).agentToken;
-        if (!agentToken) {
-            agentToken = generateAgentToken();
-            log(`Generated agent token: ${agentToken.substring(0, 8)}...`);
+        if ((node.xray || {}).agentToken !== agentToken) {
+            log('Agent token ensured in database');
         }
 
+        log('Connecting via SSH for agent installation...');
+        conn = await connectSSH(preparedNode);
+
         // Same-VPS setups must allow Docker bridge traffic to reach the host agent.
-        const sameVps = isSameVpsAsPanel(node);
+        const sameVps = isSameVpsAsPanel(preparedNode);
         const panelSourceRaw = process.env.PANEL_IP || config.BASE_URL || '';
         const panelSource = panelSourceRaw.replace(/^https?:\/\//, '').split(':')[0].split('/')[0];
         log(`Agent firewall mode: ${sameVps ? 'same-vps' : 'remote'}`);
@@ -1147,24 +1203,24 @@ async function setupXrayNodeWithAgent(node, options = {}) {
         }
 
         log('Installing CC Agent...');
-        const agentResult = await installCCAgent(conn, node, agentToken, panelSource, sameVps, log);
-        result.logs.push(agentResult.output);
-
-        if (!agentResult.success) {
-            log(`Agent install warning: may have failed, check logs above`);
-        } else {
-            log(`Agent installed: ${agentResult.agentVersion}`);
+        const agentResult = await installCCAgent(conn, preparedNode, agentToken, panelSource, sameVps, log);
+        if (agentResult.output) {
+            result.logs.push(agentResult.output);
         }
 
-        // Persist agent token and version to DB
+        if (!agentResult.success) {
+            throw new Error('CC Agent installation failed');
+        }
+        log(`Agent installed: ${agentResult.agentVersion}`);
+
         const HyNode = require('../models/hyNodeModel');
         const updates = {
             'xray.agentToken': agentToken,
             agentVersion: agentResult.agentVersion,
             agentStatus: 'unknown', // will be updated on first health check
         };
-        await HyNode.updateOne({ _id: node._id }, { $set: updates });
-        log('Agent token saved to database');
+        await HyNode.updateOne({ _id: preparedNode._id }, { $set: updates });
+        log('Agent metadata saved to database');
 
         result.agentToken = agentToken;
 
@@ -1172,7 +1228,7 @@ async function setupXrayNodeWithAgent(node, options = {}) {
         const line = `[${new Date().toISOString()}] Agent install error: ${error.message}`;
         result.logs.push(line);
         logger.error(`[AgentSetup] ${error.message}`);
-        // Don't fail the whole setup if agent install fails
+        return { ...result, success: false, error: error.message };
     } finally {
         if (conn) conn.end();
     }
@@ -1191,6 +1247,7 @@ module.exports = {
     setupXrayNodeWithAgent,
     installCCAgent,
     generateAgentToken,
+    ensureXrayAgentToken,
     generateX25519Keys,
     checkXrayNodeStatus,
     getXrayNodeLogs,

@@ -207,6 +207,7 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
                     security:  'reality',
                     apiPort:   61000,
                     agentPort: 62080,
+                    agentToken: nodeSetup.generateAgentToken(),
                     agentTls:  true,
                 },
             });
