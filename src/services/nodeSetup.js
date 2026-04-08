@@ -983,75 +983,90 @@ async function installCCAgent(conn, node, token, panelSource, sameVps, log) {
 
     const configJson = JSON.stringify(agentConfig, null, 2);
 
-    // TLS setup: generate self-signed certificate with openssl
-    const tlsSetupScript = useTls ? `
-echo "=== Generating self-signed TLS cert for cc-agent ==="
-openssl req -x509 -nodes -newkey rsa:2048 \\
-    -keyout /etc/cc-agent/key.pem \\
-    -out /etc/cc-agent/cert.pem \\
-    -subj "/CN=cc-agent" -days 36500 2>&1
-chmod 600 /etc/cc-agent/key.pem /etc/cc-agent/cert.pem
-echo "Done: TLS cert generated"
-` : `
-echo "TLS disabled, skipping cert generation"
-`;
+    // Build firewall rules based on setup type
+    let firewallRules = '';
+    if (sameVps) {
+        firewallRules = `
+echo "Same-VPS setup: allowing loopback and Docker networks"
+if command -v iptables &> /dev/null; then
+    iptables -I INPUT -p tcp -s 127.0.0.1/32 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+    iptables -I INPUT -p tcp -s 172.16.0.0/12 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+    iptables -I INPUT -p tcp -s 192.168.0.0/16 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+    echo "Done: iptables rules added"
+fi
+if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow from 127.0.0.1 to any port ${agentPort} proto tcp 2>/dev/null || true
+    ufw allow from 172.16.0.0/12 to any port ${agentPort} proto tcp 2>/dev/null || true
+    ufw allow from 192.168.0.0/16 to any port ${agentPort} proto tcp 2>/dev/null || true
+    echo "Done: ufw rules added"
+fi`;
+    } else if (panelSource) {
+        firewallRules = `
+echo "Remote setup: allowing panel source ${panelSource}"
+if command -v iptables &> /dev/null; then
+    iptables -I INPUT -p tcp -s ${panelSource} --dport ${agentPort} -j ACCEPT 2>/dev/null || true
+    echo "Done: iptables rule added"
+fi
+if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow from ${panelSource} to any port ${agentPort} proto tcp 2>/dev/null || true
+    echo "Done: ufw rule added"
+fi`;
+    } else {
+        firewallRules = 'echo "WARNING: Panel source unknown, skipping firewall rules"';
+    }
 
-    const AGENT_INSTALL = `#!/bin/bash
-# NOTE: set -e is intentionally NOT used here so agent install failure
-# doesn't break the rest of the script (Xray is already set up).
-
-echo "=== [1/5] Downloading CC Agent ==="
+    // Step 1: Download binary
+    log('Downloading cc-agent binary...');
+    const downloadResult = await execSSH(conn, `
+rm -f /usr/local/bin/cc-agent
 ARCH=$(uname -m)
 if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    BIN_NAME="cc-agent-linux-arm64"
+    BIN="cc-agent-linux-arm64"
 else
-    BIN_NAME="cc-agent-linux-amd64"
+    BIN="cc-agent-linux-amd64"
 fi
-
-GITHUB_URL="https://github.com/ClickDevTech/CELERITY-panel/releases/latest/download/$BIN_NAME"
-
-# Clean up any previous broken/stale binary before downloading
-rm -f /usr/local/bin/cc-agent
-
-DOWNLOADED=0
-
-# Primary source: GitHub releases (curl -f exits with code 22 on HTTP errors)
-if curl -fsSL --max-time 60 "$GITHUB_URL" -o /usr/local/bin/cc-agent 2>/dev/null && [ -s /usr/local/bin/cc-agent ]; then
-    chmod +x /usr/local/bin/cc-agent
-    echo "Done: cc-agent downloaded from GitHub"
-    DOWNLOADED=1
+URL="https://github.com/ClickDevTech/CELERITY-panel/releases/latest/download/$BIN"
+echo "Downloading $URL ..."
+curl -fsSL --max-time 120 "$URL" -o /usr/local/bin/cc-agent
+if [ ! -s /usr/local/bin/cc-agent ]; then
+    echo "ERROR: Download failed or file is empty"
+    exit 1
 fi
+chmod +x /usr/local/bin/cc-agent
+echo "OK: cc-agent binary ready"
+ls -la /usr/local/bin/cc-agent
+`);
 
-# Validate the downloaded file is a real ELF binary, not an error page
-if [ "$DOWNLOADED" = "1" ]; then
-    if command -v file &>/dev/null && ! file /usr/local/bin/cc-agent 2>/dev/null | grep -q "ELF"; then
-        echo "WARNING: Downloaded file does not appear to be a valid binary (got: $(file /usr/local/bin/cc-agent 2>/dev/null || echo 'unknown'))"
-        rm -f /usr/local/bin/cc-agent
-        DOWNLOADED=0
-    fi
-fi
+    if (!downloadResult.success) {
+        log(`Binary download failed: ${downloadResult.output}`);
+        return { success: false, agentVersion: '', output: downloadResult.output };
+    }
+    log('Binary downloaded');
 
-if [ "$DOWNLOADED" = "0" ]; then
-    echo "WARNING: Could not download cc-agent binary."
-    echo "Place the binary at /usr/local/bin/cc-agent and restart cc-agent.service"
-    echo "Continuing with Xray setup (agent will be missing)..."
-    exit 0
-fi
+    // Step 2: Write config
+    log('Writing agent config...');
+    await execSSH(conn, 'mkdir -p /etc/cc-agent /var/lib/cc-agent');
+    await uploadFile(conn, configJson, '/etc/cc-agent/config.json');
+    await execSSH(conn, 'chmod 600 /etc/cc-agent/config.json');
+    log('Config written');
 
-echo "=== [2/5] Creating directories ==="
-mkdir -p /etc/cc-agent /var/lib/cc-agent
+    // Step 3: Generate TLS cert if needed
+    if (useTls) {
+        log('Generating TLS certificate...');
+        await execSSH(conn, `
+openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout /etc/cc-agent/key.pem \
+    -out /etc/cc-agent/cert.pem \
+    -subj "/CN=cc-agent" -days 36500 2>&1
+chmod 600 /etc/cc-agent/key.pem /etc/cc-agent/cert.pem
+echo "OK: TLS cert generated"
+`);
+        log('TLS certificate ready');
+    }
 
-echo "=== [3/5] Writing config ==="
-cat > /etc/cc-agent/config.json << 'EOFCONFIG'
-${configJson}
-EOFCONFIG
-echo "Done: config written"
-
-${tlsSetupScript}
-
-echo "=== [4/5] Installing systemd service ==="
-cat > /etc/systemd/system/cc-agent.service << 'EOFSVC'
-[Unit]
+    // Step 4: Install systemd service
+    log('Installing systemd service...');
+    const serviceUnit = `[Unit]
 Description=CC Xray Agent
 After=network.target xray.service
 
@@ -1065,67 +1080,32 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOFSVC
+`;
+    await uploadFile(conn, serviceUnit, '/etc/systemd/system/cc-agent.service');
+    log('Service unit installed');
 
-echo "=== [5/5] Opening firewall for cc-agent ==="
-if [ "${sameVps ? '1' : '0'}" = "1" ]; then
-    echo "Same-VPS setup detected: allowing loopback and Docker networks"
-    if command -v iptables &> /dev/null; then
-        iptables -I INPUT -p tcp -s 127.0.0.1/32 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
-        echo "Done: iptables loopback rule added"
-        if command -v docker &> /dev/null; then
-            docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' 2>/dev/null | while read -r subnet; do
-                if [ -n "$subnet" ]; then
-                    iptables -I INPUT -p tcp -s "$subnet" --dport ${agentPort} -j ACCEPT 2>/dev/null || true
-                    echo "Done: iptables Docker subnet rule added for $subnet"
-                fi
-            done
-        else
-            iptables -I INPUT -p tcp -s 172.16.0.0/12 --dport ${agentPort} -j ACCEPT 2>/dev/null || true
-            echo "Done: iptables fallback Docker subnet rule added (172.16.0.0/12)"
-        fi
-    fi
-    if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-        ufw allow from 127.0.0.1 to any port ${agentPort} proto tcp 2>/dev/null || true
-        echo "Done: ufw loopback rule added"
-        if command -v docker &> /dev/null; then
-            docker network inspect $(docker network ls -q) --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' 2>/dev/null | while read -r subnet; do
-                if [ -n "$subnet" ]; then
-                    ufw allow from "$subnet" to any port ${agentPort} proto tcp 2>/dev/null || true
-                    echo "Done: ufw Docker subnet rule added for $subnet"
-                fi
-            done
-        else
-            ufw allow from 172.16.0.0/12 to any port ${agentPort} proto tcp 2>/dev/null || true
-            echo "Done: ufw fallback Docker subnet rule added (172.16.0.0/12)"
-        fi
-    fi
-elif [ -n "${panelSource}" ]; then
-    echo "Remote setup detected: allowing panel source ${panelSource}"
-    if command -v iptables &> /dev/null; then
-        iptables -I INPUT -p tcp -s ${panelSource} --dport ${agentPort} -j ACCEPT 2>/dev/null || true
-        echo "Done: iptables panel source rule added"
-    fi
-    if command -v ufw &> /dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
-        ufw allow from ${panelSource} to any port ${agentPort} proto tcp 2>/dev/null || true
-        echo "Done: ufw panel source rule added"
-    fi
-else
-    echo "WARNING: Panel source is unknown, skipping restrictive firewall rule for cc-agent"
-fi
-
-echo "=== Starting cc-agent ==="
+    // Step 5: Firewall + start service
+    log('Configuring firewall and starting service...');
+    const startResult = await execSSH(conn, `
+${firewallRules}
 systemctl daemon-reload
 systemctl enable cc-agent
 systemctl restart cc-agent
 sleep 2
-systemctl is-active cc-agent && echo "cc-agent: running" || echo "cc-agent: check logs with: journalctl -u cc-agent -n 30"
-echo "Done: cc-agent installed"
-`;
+if systemctl is-active cc-agent > /dev/null 2>&1; then
+    echo "OK: cc-agent running"
+    /usr/local/bin/cc-agent -version 2>/dev/null || true
+else
+    echo "ERROR: cc-agent failed to start"
+    journalctl -u cc-agent -n 10 --no-pager 2>/dev/null || true
+fi
+`);
 
-    const result = await execSSH(conn, AGENT_INSTALL);
-    const agentVersion = result.output.match(/cc-agent[:\s]+(v[\d.]+)/)?.[1] || 'installed';
-    return { success: result.success, agentVersion, output: result.output };
+    const allOutput = [downloadResult.output, startResult.output].join('\n');
+    const agentVersion = allOutput.match(/cc-agent[:\s]+(v[\d.]+)/)?.[1] || 'installed';
+    const isRunning = startResult.output.includes('OK: cc-agent running');
+
+    return { success: isRunning, agentVersion, output: allOutput };
 }
 
 /**
