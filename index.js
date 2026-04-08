@@ -493,6 +493,22 @@ async function startServer() {
             logger.info(`[Migration] Generated xrayUuid for ${usersWithoutUuid.length} existing users`);
         }
 
+        // Migration: mark onboarding as completed for existing installations
+        // Prevents the wizard from showing to users who already have nodes set up
+        try {
+            const Settings = require('./src/models/settingsModel');
+            const existingSettings = await Settings.get();
+            if (!existingSettings.deployment?.completed) {
+                const existingNodeCount = await HyNode.countDocuments();
+                if (existingNodeCount > 0) {
+                    await Settings.update({ 'deployment.completed': true, 'deployment.completedAt': new Date() });
+                    logger.info('[Migration] Marked onboarding as completed (existing installation detected)');
+                }
+            }
+        } catch (migErr) {
+            logger.warn(`[Migration] Deployment migration warning: ${migErr.message}`);
+        }
+
         await reloadSettings();
         
         const PORT = process.env.PORT || 3000;
