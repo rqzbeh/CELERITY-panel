@@ -11,6 +11,8 @@ const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const HyNode = require('../../models/hyNodeModel');
+const HyUser = require('../../models/hyUserModel');
+const ServerGroup = require('../../models/serverGroupModel');
 const Settings = require('../../models/settingsModel');
 const cryptoService = require('../../services/cryptoService');
 const sshKeyService = require('../../services/sshKeyService');
@@ -19,6 +21,7 @@ const cache = require('../../services/cacheService');
 const config = require('../../../config');
 const logger = require('../../utils/logger');
 const { invalidateOnboardingCache } = require('./helpers');
+const { invalidateGroupsCache } = require('../../utils/helpers');
 
 // In-memory map of active bootstrap tasks: taskId -> { logs, done, error }
 const _bootstrapTasks = new Map();
@@ -62,6 +65,76 @@ async function redirectIfCompleted(req, res) {
         return true;
     }
     return false;
+}
+
+async function ensureStarterAccessBundle(nodeIds) {
+    if (!Array.isArray(nodeIds) || nodeIds.length === 0) {
+        return null;
+    }
+
+    const group = await ServerGroup.findOneAndUpdate(
+        { name: 'Celerity Primary Access' },
+        {
+            $setOnInsert: {
+                name: 'Celerity Primary Access',
+                description: 'Created automatically during onboarding.',
+                color: '#6366f1',
+                active: true,
+                subscriptionTitle: 'C³ CELERITY',
+            },
+            $set: { active: true },
+        },
+        { new: true, upsert: true }
+    );
+
+    await HyNode.updateMany(
+        { _id: { $in: nodeIds } },
+        { $addToSet: { groups: group._id } }
+    );
+
+    let user = await HyUser.findOne({ userId: 'admin' });
+    let generatedPassword = '';
+    let createdUser = false;
+
+    if (!user) {
+        generatedPassword = crypto.randomBytes(18).toString('base64url');
+        user = await HyUser.create({
+            userId: 'admin',
+            username: 'Administrator',
+            password: generatedPassword,
+            groups: [group._id],
+            nodes: [],
+            enabled: true,
+            trafficLimit: 0,
+            maxDevices: 0,
+        });
+        createdUser = true;
+    } else {
+        await HyUser.updateOne(
+            { _id: user._id },
+            {
+                $set: {
+                    enabled: true,
+                    username: user.username || 'Administrator',
+                },
+                $addToSet: { groups: group._id },
+            }
+        );
+        user = await HyUser.findById(user._id);
+    }
+
+    await Promise.all([
+        invalidateGroupsCache(),
+        cache.invalidateNodes(),
+        cache.invalidateAllSubscriptions(),
+    ]);
+
+    return {
+        groupName: group.name,
+        userId: user.userId,
+        password: generatedPassword,
+        createdUser,
+    };
 }
 
 // ─── Step 1: Choose scenario ──────────────────────────────────────────────────
@@ -234,7 +307,13 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
 
         // Create a task and redirect to progress page
         const taskId = crypto.randomUUID();
-        _bootstrapTasks.set(taskId, { logs: [], done: false, success: false, error: null });
+        _bootstrapTasks.set(taskId, {
+            logs: [],
+            done: false,
+            success: false,
+            error: null,
+            starterCredentials: null,
+        });
 
         // Run setup in background, do not await
         _runBootstrap(taskId, createdNodeIds).catch(err => {
@@ -257,6 +336,25 @@ async function _runBootstrap(taskId, nodeIds) {
     const pushLog = (line) => { task.logs.push(line); };
 
     let allSuccess = true;
+
+    try {
+        const starterBundle = await ensureStarterAccessBundle(nodeIds);
+        if (starterBundle) {
+            pushLog(`[Info] Starter group ready: ${starterBundle.groupName}`);
+            pushLog(`[Info] Starter user ready: ${starterBundle.userId}`);
+            if (starterBundle.createdUser && starterBundle.password) {
+                task.starterCredentials = {
+                    userId: starterBundle.userId,
+                    password: starterBundle.password,
+                };
+                pushLog('[Info] Starter user credentials are ready.');
+                pushLog('[Info] They will be shown separately after provisioning completes.');
+            }
+        }
+    } catch (err) {
+        pushLog(`[Error] Could not prepare starter access: ${err.message}`);
+        allSuccess = false;
+    }
 
     for (const nodeId of nodeIds) {
         const node = await HyNode.findById(nodeId);
@@ -301,8 +399,7 @@ async function _runBootstrap(taskId, nodeIds) {
         await completeOnboarding('self-host');
         pushLog('\n[Done] All nodes set up successfully. Onboarding complete.');
     } else {
-        await completeOnboarding('self-host');
-        pushLog('\n[Done] Setup finished with errors. You can retry failed nodes from the Nodes page.');
+        pushLog('\n[Done] Setup finished with errors. Onboarding remains open until provisioning completes successfully.');
     }
 
     task.done    = true;
@@ -368,7 +465,10 @@ router.get('/wizard/progress/:taskId/stream', (req, res) => {
         }
 
         if (task.done) {
-            send('done', { success: task.success });
+            send('done', {
+                success: task.success,
+                starterCredentials: task.starterCredentials,
+            });
             clearInterval(intervalId);
             res.end();
         }
