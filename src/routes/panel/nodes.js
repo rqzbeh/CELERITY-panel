@@ -1056,24 +1056,4 @@ router.post('/nodes/:id/restart', async (req, res) => {
     }
 });
 
-// POST /nodes/:id/sync - Force full sync for a single node
-router.post('/nodes/:id/sync', async (req, res) => {
-    try {
-        const node = await HyNode.findById(req.params.id);
-        if (!node) {
-            return res.status(404).json({ error: 'Node not found' });
-        }
-
-        await HyNode.findByIdAndUpdate(req.params.id, { $set: { status: 'syncing' } });
-
-        syncService.updateNodeConfig(node).catch(err => {
-            require('../../utils/logger').error(`[Panel] Sync error for ${node.name}: ${err.message}`);
-        });
-
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 module.exports = router;
