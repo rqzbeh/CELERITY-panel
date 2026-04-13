@@ -151,6 +151,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             rankingCoefficient: rankingCoefficient || 1.0,
             cascadeRole: cascadeRole || 'standalone',
             country: country || '',
+            initScript: req.body.initScript || '',
             active: true,
             status: 'offline',
         };
@@ -192,7 +193,7 @@ router.put('/:id', requireScope('nodes:write'), async (req, res) => {
             'hopInterval', 'acme', 'masquerade', 'bandwidth',
             'ignoreClientBandwidth', 'speedTest', 'disableUDP',
             'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl',
-            'aclRules', 'useTlsFiles',
+            'aclRules', 'useTlsFiles', 'initScript',
         ];
         
         const updates = {};

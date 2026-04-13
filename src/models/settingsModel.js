@@ -42,6 +42,8 @@ const settingsSchema = new mongoose.Schema({
         // Enable if panel uses HTTP or self-signed certificate
         insecure: { type: Boolean, default: true },
     },
+
+    lastInitScript: { type: String, default: '' },
     
     backup: {
         enabled: { type: Boolean, default: false },

@@ -141,6 +141,7 @@ const manageNodeSchema = z.object({
         }).optional(),
         aclRules: z.array(z.string()).optional().describe('Inline ACL rules (stored on node root, not inside acl)'),
         useTlsFiles: z.boolean().optional().describe('Whether to use TLS cert/key files instead of ACME'),
+        initScript: z.string().optional().describe('Bash script executed before auto-setup via SSH'),
     }).optional(),
     setupOptions: z.object({
         installHysteria: z.boolean().default(true),
@@ -257,6 +258,8 @@ async function manageNode(args, emit) {
                 cascadeRole: data.cascadeRole || 'standalone',
                 country: data.country || '',
             };
+            if (data.initScript !== undefined) nodeData.initScript = data.initScript;
+
             const hy2Keys = [
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
                 'ignoreClientBandwidth', 'speedTest', 'disableUDP',
@@ -279,6 +282,7 @@ async function manageNode(args, emit) {
                 'hopInterval', 'acme', 'masquerade', 'bandwidth',
                 'ignoreClientBandwidth', 'speedTest', 'disableUDP',
                 'udpIdleTimeout', 'sniff', 'quic', 'resolver', 'acl', 'aclRules', 'useTlsFiles',
+                'initScript',
             ];
             const updates = {};
             for (const k of allowed) {

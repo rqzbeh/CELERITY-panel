@@ -387,6 +387,7 @@
 
 <script>
 const nodeType = '<%= node?.type || "hysteria" %>';
+const lastInitScript = <%- JSON.stringify(lastInitScript || '').replace(/</g, '\\u003c') %>;
 const i18n = {
     autoSetupConfirm: <%- JSON.stringify(t("nodes.autoSetupConfirm")) %>,
     autoSetupConfirmXray: <%- JSON.stringify(t("nodes.autoSetupConfirmXray")) %>,
@@ -513,6 +514,15 @@ function toggleObfsPassword() {
 function toggleCustomConfig() {
     const checked = document.getElementById('useCustomConfig').checked;
     document.getElementById('customConfigSection').style.display = checked ? 'block' : 'none';
+}
+
+function useLastInitScript() {
+    const ta = document.getElementById('initScript');
+    if (!ta || !lastInitScript) return;
+    ta.value = lastInitScript;
+    const details = document.getElementById('initScriptDetails');
+    if (details) details.open = true;
+    ta.focus();
 }
 
 function toggleAcmeByDomain() {

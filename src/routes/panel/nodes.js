@@ -138,7 +138,10 @@ router.get('/nodes', async (req, res) => {
 // and automatically switch to the opposite protocol type.
 router.get('/nodes/add', async (req, res) => {
     try {
-        const groups = await getActiveGroups();
+        const [groups, settings] = await Promise.all([
+            getActiveGroups(),
+            Settings.get(),
+        ]);
 
         let prefillNode = null;
         if (req.query.cloneFrom) {
@@ -167,6 +170,7 @@ router.get('/nodes/add', async (req, res) => {
             cascadeLinks: [],
             error: req.query.error || null,
             panelDomain: config.PANEL_DOMAIN || '',
+            lastInitScript: settings?.lastInitScript || '',
         });
     } catch (error) {
         logger.error('[Panel] GET /nodes/add error:', error.message);
@@ -292,6 +296,7 @@ router.post('/nodes', async (req, res) => {
             customConfig: req.body.customConfig || '',
             cascadeRole: req.body.cascadeRole || 'standalone',
             country: req.body.country || '',
+            initScript: req.body.initScript || '',
             obfs: {
                 type: req.body['obfs.type'] || '',
                 password: req.body['obfs.password'] || '',
@@ -463,6 +468,7 @@ router.get('/nodes/:id', async (req, res) => {
             cascadeLinks: cascadeLinks || [],
             error: req.query.error || null,
             panelDomain: config.PANEL_DOMAIN || '',
+            lastInitScript: settings?.lastInitScript || '',
         });
     } catch (error) {
         res.status(500).send('Error: ' + error.message);
@@ -513,6 +519,7 @@ router.post('/nodes/:id', async (req, res) => {
             flag: req.body.flag || '',
             cascadeRole: req.body.cascadeRole || 'standalone',
             country: req.body.country || '',
+            initScript: req.body.initScript || '',
             'ssh.port': parseInt(req.body['ssh.port']) || 22,
             'ssh.username': req.body['ssh.username'] || 'root',
         };

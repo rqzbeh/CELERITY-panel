@@ -231,6 +231,7 @@ const hyNodeSchema = new mongoose.Schema({
     customConfig: { type: String, default: '' },
     useCustomConfig: { type: Boolean, default: false },
     useTlsFiles: { type: Boolean, default: false },
+    initScript: { type: String, default: '' },
 
     // Cascade topology fields
     cascadeRole: {

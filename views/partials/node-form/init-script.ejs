@@ -1,0 +1,26 @@
+<%# ========== Init Script ========== %>
+<details class="node-advanced-details" id="initScriptDetails" <%= node?.initScript ? 'open' : '' %>>
+    <summary class="node-advanced-summary">
+        <span><i class="ti ti-terminal"></i> <%= t('nodes.initScript') %></span>
+        <i class="ti ti-chevron-down node-advanced-chevron"></i>
+    </summary>
+    <div class="form-section" style="border-radius:0;margin:0;border-top:1px solid var(--border);">
+        <small class="section-hint"><%= t('nodes.initScriptHint') %></small>
+        <div class="form-group" style="margin-top:10px;">
+            <% if (lastInitScript && !node?.initScript) { %>
+            <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+                <button type="button" class="btn btn-sm btn-secondary" onclick="useLastInitScript()" id="btnUseLastScript">
+                    <i class="ti ti-history"></i> <%= t('nodes.initScriptUseLast') %>
+                </button>
+            </div>
+            <% } %>
+            <textarea
+                id="initScript"
+                name="initScript"
+                rows="8"
+                class="code-textarea"
+                placeholder="#!/bin/bash&#10;# e.g. enable BBR, configure swap, install packages&#10;sysctl -w net.core.default_qdisc=fq&#10;sysctl -w net.ipv4.tcp_congestion_control=bbr"
+            ><%= node?.initScript || '' %></textarea>
+        </div>
+    </div>
+</details>

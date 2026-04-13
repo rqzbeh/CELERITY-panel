@@ -431,6 +431,48 @@ function uploadFile(conn, content, remotePath) {
     });
 }
 
+/**
+ * Execute a user-defined init script on the remote node via SSH.
+ * Non-fatal: failures are logged but do not abort the main setup.
+ * Injects NODE_IP, NODE_NAME, NODE_TYPE, NODE_DOMAIN as env variables.
+ *
+ * @param {Object} conn - Active SSH connection
+ * @param {Object} node - Node document
+ * @param {Function} log - Logging function from the parent setup context
+ * @param {Array} logs - Log accumulator from the parent setup context
+ */
+async function runInitScript(conn, node, log, logs) {
+    const script = (node.initScript || '').trim();
+    if (!script) return;
+
+    log('=== Running user init script ===');
+
+    // Single-quote escaping for bash: replace ' with '\'' (end quote, escaped quote, start quote)
+    const sq = (v) => "'" + String(v || '').replace(/'/g, "'\\''") + "'";
+
+    const envPrefix = [
+        `export NODE_IP=${sq(node.ip)}`,
+        `export NODE_NAME=${sq(node.name)}`,
+        `export NODE_TYPE=${sq(node.type || 'hysteria')}`,
+        `export NODE_DOMAIN=${sq(node.domain)}`,
+    ].join('\n');
+
+    const wrappedScript = `#!/bin/bash\nset +e\n${envPrefix}\n\n${script}`;
+
+    try {
+        const result = await execSSH(conn, wrappedScript);
+        if (result.output) logs.push(result.output);
+
+        if (result.success) {
+            log('Init script completed successfully');
+        } else {
+            log(`Init script exited with code ${result.code} (non-fatal, continuing setup)`);
+        }
+    } catch (err) {
+        log(`Init script error: ${err.message} (non-fatal, continuing setup)`);
+    }
+}
+
 async function setupNode(node, options = {}) {
     const { installHysteria = true, setupPortHopping = true, restartService = true } = options;
     
@@ -456,6 +498,8 @@ async function setupNode(node, options = {}) {
         log('Connecting via SSH...');
         conn = await connectSSH(node);
         log('SSH connected');
+
+        await runInitScript(conn, node, log, logs);
         
         if (installHysteria) {
             log('Running system diagnostics and installing Hysteria...');
@@ -645,6 +689,11 @@ journalctl -u hysteria-server -n 20 --no-pager || true
         }
         
         log('Setup completed successfully!');
+
+        if (node.initScript) {
+            await Settings.update({ lastInitScript: node.initScript }).catch(() => {});
+        }
+
         return { success: true, logs, useTlsFiles };
         
     } catch (error) {
@@ -807,6 +856,8 @@ async function setupXrayNode(node, options = {}) {
         conn = await connectSSH(node);
         log('SSH connected');
 
+        await runInitScript(conn, node, log, logs);
+
         // Install Xray
         log('Installing Xray-core...');
         const installResult = await execSSH(conn, XRAY_INSTALL_SCRIPT);
@@ -921,6 +972,11 @@ journalctl -u xray -n 15 --no-pager || true
         }
 
         log('Xray setup completed successfully!');
+
+        if (node.initScript) {
+            await Settings.update({ lastInitScript: node.initScript }).catch(() => {});
+        }
+
         return { success: true, logs, realityKeys: generatedKeys };
 
     } catch (error) {
