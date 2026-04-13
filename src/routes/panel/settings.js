@@ -8,12 +8,14 @@ const bcrypt = require('bcryptjs');
 const HyUser = require('../../models/hyUserModel');
 const HyNode = require('../../models/hyNodeModel');
 const Settings = require('../../models/settingsModel');
+const ServerGroup = require('../../models/serverGroupModel');
 const Admin = require('../../models/adminModel');
 const ApiKey = require('../../models/apiKeyModel');
 const cryptoService = require('../../services/cryptoService');
 const totpService = require('../../services/totpService');
 const webhookService = require('../../services/webhookService');
 const cache = require('../../services/cacheService');
+const marzbanService = require('../../services/marzbanService');
 const { invalidateSettingsCache } = require('../../utils/helpers');
 const config = require('../../../config');
 const logger = require('../../utils/logger');
@@ -35,10 +37,11 @@ router.get('/settings', async (req, res) => {
             domain: config.PANEL_DOMAIN || null,
         };
 
-        const [admin, settingsDoc, apiKeys] = await Promise.all([
+        const [admin, settingsDoc, apiKeys, groups] = await Promise.all([
             Admin.findOne({ username: req.session.adminUsername }),
             Settings.get(),
             ApiKey.listKeys(),
+            ServerGroup.find({ active: true }).select('_id name').lean(),
         ]);
 
         // Convert to plain object before mutating to avoid Mongoose change tracking
@@ -59,6 +62,7 @@ router.get('/settings', async (req, res) => {
             admin,
             settings,
             apiKeys,
+            groups,
             validScopes: ApiKey.VALID_SCOPES,
             webhookEvents: Object.values(webhookService.EVENTS),
             message: req.query.message || null,
@@ -654,5 +658,149 @@ router.post('/settings/test-webhook', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// ==================== MARZBAN MIGRATION ====================
+
+// POST /settings/migration-connect
+// Phase 1: authenticate with Marzban and return total user count + access token.
+// Credentials are NOT stored — the client sends the token back for the import step.
+router.post('/settings/migration-connect', async (req, res) => {
+    try {
+        const { url, username, password } = req.body;
+
+        if (!url || !username || !password) {
+            return res.status(400).json({ error: 'url, username and password are required' });
+        }
+
+        const accessToken = await marzbanService.connect(url.trim(), username.trim(), password);
+        const total = await marzbanService.fetchUsersCount(url.trim(), accessToken);
+
+        logger.info(`[Migration] Connected to Marzban at ${url}, total users: ${total} (admin: ${req.session.adminUsername})`);
+
+        res.json({ accessToken, total });
+    } catch (err) {
+        logger.error(`[Migration] Connect error: ${err.message}`);
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// POST /settings/migration-import
+// Phase 2: start background import job. Returns jobId immediately.
+router.post('/settings/migration-import', async (req, res) => {
+    try {
+        const { url, accessToken, secretKey, groupId, total } = req.body;
+
+        if (!url || !accessToken) {
+            return res.status(400).json({ error: 'url and accessToken are required' });
+        }
+
+        // Validate groupId if supplied
+        const resolvedGroupId = groupId || null;
+
+        // Encrypt and persist secretKey now (before job completes) so it's available
+        // even if the admin closes the modal. Updated again with importedCount on finish.
+        if (secretKey && secretKey.trim()) {
+            const encrypted = cryptoService.encrypt(secretKey.trim());
+            await Settings.update({ 'marzban.secretKey': encrypted });
+            await invalidateSettingsCache();
+        }
+
+        const jobId = marzbanService.startImportJob(
+            url.trim(),
+            accessToken,
+            parseInt(total, 10) || 0,
+            resolvedGroupId,
+            cryptoService,
+        );
+
+        // When the job finishes, persist the counts.
+        // We poll the job state asynchronously — no await here.
+        _persistJobResultWhenDone(jobId);
+
+        logger.info(`[Migration] Import job ${jobId} started by admin: ${req.session.adminUsername}`);
+
+        res.json({ jobId });
+    } catch (err) {
+        logger.error(`[Migration] Import start error: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /settings/migration-progress?jobId=X
+// Poll import job progress.
+router.get('/settings/migration-progress', (req, res) => {
+    const { jobId } = req.query;
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
+
+    const job = marzbanService.getJobProgress(jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    res.json({
+        phase:    job.phase,
+        fetched:  job.fetched,
+        total:    job.total,
+        imported: job.imported,
+        created:  job.created,
+        skipped:  job.skipped,
+        errors:   job.errors,
+        done:     job.done,
+        error:    job.errorMessage || null,
+    });
+});
+
+// POST /settings/migration-cancel
+// Cancel a running import job.
+router.post('/settings/migration-cancel', (req, res) => {
+    const { jobId } = req.body;
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
+
+    marzbanService.cancelJob(jobId);
+    logger.info(`[Migration] Job ${jobId} cancelled by admin: ${req.session.adminUsername}`);
+    res.json({ success: true });
+});
+
+// POST /settings/migration-clear-compat
+// Remove the Marzban secret key, disabling the /sub/:token compatibility route.
+router.post('/settings/migration-clear-compat', async (req, res) => {
+    try {
+        await Settings.update({
+            'marzban.secretKey': '',
+        });
+        await invalidateSettingsCache();
+
+        logger.info(`[Migration] Compat route disabled by admin: ${req.session.adminUsername}`);
+        res.json({ success: true });
+    } catch (err) {
+        logger.error(`[Migration] Clear compat error: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * Internal: poll until a job is done, then persist importedCount to Settings.
+ * Runs fire-and-forget without blocking the request.
+ */
+async function _persistJobResultWhenDone(jobId) {
+    const CHECK_INTERVAL_MS = 3000;
+    const GIVE_UP_MS = 11 * 60_000; // slightly over job's own 10-min timeout
+    const start = Date.now();
+
+    while (Date.now() - start < GIVE_UP_MS) {
+        await new Promise(r => setTimeout(r, CHECK_INTERVAL_MS));
+        const job = marzbanService.getJobProgress(jobId);
+        if (!job || !job.done) continue;
+
+        try {
+            const updates = { 'marzban.importedAt': new Date(), 'marzban.importedCount': job.created };
+            // If secretKey was cleared in the meantime, don't re-enable
+            await Settings.update(updates);
+            await invalidateSettingsCache();
+            logger.info(`[Migration] Persisted results for job ${jobId}: created=${job.created}`);
+        } catch (e) {
+            logger.error(`[Migration] Could not persist results for job ${jobId}: ${e.message}`);
+        }
+        return;
+    }
+}
 
 module.exports = router;

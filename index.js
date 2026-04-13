@@ -35,6 +35,8 @@ const subscriptionRoutes = require('./src/routes/subscription');
 const authRoutes = require('./src/routes/auth');
 const panelRoutes = require('./src/routes/panel');
 const mcpRoutes = require('./src/routes/mcp');
+const { decodeMarzbanToken } = require('./src/utils/marzbanCompat');
+const cryptoService = require('./src/services/cryptoService');
 
 const helmet = require('helmet');
 const app = express();
@@ -415,6 +417,41 @@ app.use('/panel', panelRoutes);
 app.get('/', (req, res) => {
     res.redirect('/panel');
 });
+
+// ==================== MARZBAN SUBSCRIPTION COMPAT ====================
+// Handles legacy Marzban subscription links: /sub/<token>
+// Active only when marzban.secretKey is configured in Settings.
+// Decodes the Marzban token → resolves username → delegates to subscriptionRoutes.
+
+app.use('/sub', subscriptionLimiter);
+
+async function _marzbanCompatHandler(req, res, next, subPath) {
+    try {
+        const { getSettings } = require('./src/utils/helpers');
+        const settings = await getSettings();
+        const encryptedKey = settings?.marzban?.secretKey;
+        if (!encryptedKey) return res.status(404).send('Not Found');
+
+        const secretKey = cryptoService.decryptSafe(encryptedKey);
+        if (!secretKey) return res.status(404).send('Not Found');
+
+        const decoded = decodeMarzbanToken(req.params.token, secretKey);
+        if (!decoded) return res.status(404).send('Not Found');
+
+        // Rewrite to the internal subscription route, preserving query params
+        const qs = Object.keys(req.query).length
+            ? '?' + new URLSearchParams(req.query).toString()
+            : '';
+        req.url = `/${subPath}/${encodeURIComponent(decoded.username)}${qs}`;
+        subscriptionRoutes(req, res, next);
+    } catch (err) {
+        logger.error(`[MarzbanCompat] ${err.message}`);
+        res.status(500).send('Internal Server Error');
+    }
+}
+
+app.get('/sub/:token', (req, res, next) => _marzbanCompatHandler(req, res, next, 'files'));
+app.get('/sub/:token/info', (req, res, next) => _marzbanCompatHandler(req, res, next, 'info'));
 
 // ==================== ERROR HANDLING ====================
 

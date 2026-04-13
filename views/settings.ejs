@@ -104,7 +104,23 @@ const i18n = {
     restoreError: <%- JSON.stringify(t("settings.restoreError") || "Ошибка восстановления") %>,
     noBackups: <%- JSON.stringify(t("settings.noBackups") || "Нет доступных бэкапов") %>,
     localBackups: <%- JSON.stringify(t("settings.localBackups") || "Локальные") %>,
-    s3Backups: <%- JSON.stringify(t("settings.s3Backups") || "S3") %>
+    s3Backups: <%- JSON.stringify(t("settings.s3Backups") || "S3") %>,
+    // Migration
+    migConnecting:     <%- JSON.stringify(t("settings.migration.connecting")     || "Connecting...") %>,
+    migConnect:        <%- JSON.stringify(t("settings.migration.connect")         || "Connect") %>,
+    migFound:          <%- JSON.stringify(t("settings.migration.foundUsers")      || "Found: {total} users") %>,
+    migCompatOn:       <%- JSON.stringify(t("settings.migration.compatWillOn")    || "/sub/ compat route will be activated") %>,
+    migImport:         <%- JSON.stringify(t("settings.migration.import")          || "Import") %>,
+    migImporting:      <%- JSON.stringify(t("settings.migration.importing")       || "Importing...") %>,
+    migFetching:       <%- JSON.stringify(t("settings.migration.phFetching")      || "Fetching from Marzban...") %>,
+    migPhDone:         <%- JSON.stringify(t("settings.migration.phDone")          || "Done!") %>,
+    migPhCancelled:    <%- JSON.stringify(t("settings.migration.phCancelled")     || "Cancelled") %>,
+    migPhError:        <%- JSON.stringify(t("settings.migration.phError")         || "Error") %>,
+    migCreated:        <%- JSON.stringify(t("settings.migration.created")         || "Created: {count}") %>,
+    migSkipped:        <%- JSON.stringify(t("settings.migration.skipped")         || "Skipped (already exist): {count}") %>,
+    migErrors:         <%- JSON.stringify(t("settings.migration.errors")          || "Errors: {count}") %>,
+    migClearConfirm:   <%- JSON.stringify(t("settings.migration.clearConfirm")    || "Disable /sub/ compatibility route?") %>,
+    migCleared:        <%- JSON.stringify(t("settings.migration.cleared")         || "Compat route disabled") %>
 };
 
 // ==================== TABS ====================
@@ -496,6 +512,236 @@ async function submitMcpKey(e) {
     } finally {
         btn.disabled = false;
         btn.textContent = '<%= t("mcp.createKeyBtn") || "Create Key" %>';
+    }
+}
+
+// ==================== MARZBAN MIGRATION ====================
+
+let _migAccessToken = null;
+let _migJobId = null;
+let _migPollTimer = null;
+let _migHasSecretKey = false;
+let _migTotal = 0;
+
+function openMigrationModal() {
+    _migAccessToken = null;
+    _migJobId = null;
+    _migHasSecretKey = false;
+    clearInterval(_migPollTimer);
+    _migShowStep(1);
+    // Reset form
+    ['migUrl','migUsername','migPassword','migSecretKey'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    document.getElementById('migStep1Error').style.display = 'none';
+    document.getElementById('migrationModal').style.display = 'flex';
+}
+
+function closeMigrationModal() {
+    clearInterval(_migPollTimer);
+    document.getElementById('migrationModal').style.display = 'none';
+}
+
+function migrationBack() {
+    _migShowStep(1);
+}
+
+function _migShowStep(n) {
+    [1,2,3,4].forEach(i => {
+        const el = document.getElementById('migStep' + i);
+        if (el) el.style.display = i === n ? '' : 'none';
+    });
+}
+
+async function migrationConnect() {
+    const btn = document.getElementById('migConnectBtn');
+    const errEl = document.getElementById('migStep1Error');
+    const url = (document.getElementById('migUrl').value || '').trim();
+    const username = (document.getElementById('migUsername').value || '').trim();
+    const password = (document.getElementById('migPassword').value || '').trim();
+
+    errEl.style.display = 'none';
+
+    if (!url || !username || !password) {
+        errEl.textContent = 'Please fill in all required fields.';
+        errEl.style.display = '';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader-2"></i> ' + i18n.migConnecting;
+
+    try {
+        const res = await fetch('/panel/settings/migration-connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ url, username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Connection failed');
+
+        _migAccessToken = data.accessToken;
+        _migTotal = data.total || 0;
+        _migHasSecretKey = !!(document.getElementById('migSecretKey').value || '').trim();
+
+        // Show preview step
+        document.getElementById('migFoundText').textContent =
+            i18n.migFound.replace('{total}', data.total);
+        const compatEl = document.getElementById('migCompatText');
+        if (_migHasSecretKey) {
+            compatEl.textContent = i18n.migCompatOn;
+        } else {
+            compatEl.textContent = '';
+        }
+        document.getElementById('migImportBtnText').textContent =
+            i18n.migImport + ' (' + data.total + ')';
+
+        _migShowStep(2);
+    } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = '';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-plug-connected"></i> ' + i18n.migConnect;
+    }
+}
+
+async function migrationImport() {
+    const btn = document.getElementById('migImportBtn');
+    const errEl = document.getElementById('migStep2Error');
+    errEl.style.display = 'none';
+
+    const url = (document.getElementById('migUrl').value || '').trim();
+    const secretKey = (document.getElementById('migSecretKey').value || '').trim();
+    const groupId = document.getElementById('migGroupId').value || '';
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ti ti-loader-2"></i> ' + i18n.migImporting;
+
+    try {
+        const res = await fetch('/panel/settings/migration-import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                url,
+                accessToken: _migAccessToken,
+                secretKey: secretKey || undefined,
+                groupId: groupId || undefined,
+                total: _migTotal,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Import failed');
+
+        _migJobId = data.jobId;
+        _migShowStep(3);
+        _migStartPolling();
+    } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-transfer-in"></i> ' + i18n.migImport;
+    }
+}
+
+function _migStartPolling() {
+    clearInterval(_migPollTimer);
+    _migPollTimer = setInterval(_migPoll, 1000);
+}
+
+async function _migPoll() {
+    if (!_migJobId) return;
+    try {
+        const res = await fetch('/panel/settings/migration-progress?jobId=' + encodeURIComponent(_migJobId), {
+            credentials: 'include',
+        });
+        if (!res.ok) return;
+        const job = await res.json();
+
+        // Update progress UI
+        const pct = job.total > 0 ? Math.round((job.fetched / job.total) * 100) : 0;
+        document.getElementById('migProgressBar').style.width = pct + '%';
+        document.getElementById('migProgressText').textContent =
+            (job.phase === 'fetching' ? i18n.migFetching : '') +
+            (job.total > 0 ? ` ${job.fetched} / ${job.total}` : '');
+        document.getElementById('migProgressDetail').textContent =
+            i18n.migCreated.replace('{count}', job.created) + '  |  ' +
+            i18n.migSkipped.replace('{count}', job.skipped) + '  |  ' +
+            i18n.migErrors.replace('{count}', job.errors);
+
+        if (job.done || job.phase === 'done' || job.phase === 'cancelled' || job.phase === 'error') {
+            clearInterval(_migPollTimer);
+            _migShowResult(job);
+        }
+    } catch (_) { /* network blip — keep polling */ }
+}
+
+function _migShowResult(job) {
+    const iconEl = document.getElementById('migResultIcon');
+    const titleEl = document.getElementById('migResultTitle');
+    const statsEl = document.getElementById('migResultStats');
+    const compatEl = document.getElementById('migCompatActivated');
+
+    if (job.phase === 'error') {
+        iconEl.innerHTML = '<i class="ti ti-circle-x" style="color:var(--danger)"></i>';
+        titleEl.textContent = i18n.migPhError + (job.error ? ': ' + job.error : '');
+    } else if (job.phase === 'cancelled') {
+        iconEl.innerHTML = '<i class="ti ti-circle-x" style="color:var(--warning)"></i>';
+        titleEl.textContent = i18n.migPhCancelled;
+    } else {
+        iconEl.innerHTML = '<i class="ti ti-circle-check" style="color:var(--success)"></i>';
+        titleEl.textContent = i18n.migPhDone;
+    }
+
+    statsEl.innerHTML =
+        '<div>' + i18n.migCreated.replace('{count}', '<strong>' + job.created + '</strong>') + '</div>' +
+        '<div>' + i18n.migSkipped.replace('{count}', '<strong>' + job.skipped + '</strong>') + '</div>' +
+        '<div>' + i18n.migErrors.replace('{count}', '<strong>' + job.errors + '</strong>') + '</div>';
+
+    compatEl.style.display = _migHasSecretKey && job.phase === 'done' ? '' : 'none';
+
+    _migShowStep(4);
+}
+
+async function migrationCancel() {
+    if (!_migJobId) { closeMigrationModal(); return; }
+    const btn = document.getElementById('migCancelBtn');
+    btn.disabled = true;
+    try {
+        await fetch('/panel/settings/migration-cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ jobId: _migJobId }),
+        });
+    } catch (_) {}
+}
+
+function migrationDone() {
+    closeMigrationModal();
+    // Reload to reflect updated marzban settings (last import date, compat status)
+    window.location.reload();
+}
+
+async function migrationClearCompat() {
+    if (!confirm(i18n.migClearConfirm)) return;
+    try {
+        const res = await fetch('/panel/settings/migration-clear-compat', {
+            method: 'POST',
+            credentials: 'include',
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast(i18n.migCleared, 'success');
+            setTimeout(() => window.location.reload(), 1200);
+        } else {
+            showToast(data.error || i18n.error, 'error');
+        }
+    } catch (e) {
+        showToast(i18n.error, 'error');
     }
 }
 </script>
