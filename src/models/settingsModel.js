@@ -121,15 +121,6 @@ const settingsSchema = new mongoose.Schema({
             remote:   { type: String, default: 'tls://1.1.1.1' },
         },
     },
-
-    // Marzban migration settings
-    marzban: {
-        // Marzban JWT secret key (AES-encrypted via cryptoService).
-        // When non-empty, the /sub/:token compatibility route is active.
-        secretKey:     { type: String, default: '' },
-        importedAt:    { type: Date,   default: null },
-        importedCount: { type: Number, default: 0 },
-    },
     
 }, { timestamps: true });
 
