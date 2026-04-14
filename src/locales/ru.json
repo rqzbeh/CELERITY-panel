@@ -253,6 +253,7 @@
     "autoSetupConfirmXray": "Настроить ноду автоматически через SSH?\n\nЭто:\n• Установит Xray-core (последняя версия)\n• Сгенерирует Reality ключи (если нужны)\n• Установит CC Agent (управление без SSH)\n• Настроит файрвол\n• Запустит сервисы",
     "setupRunning": "Выполняется настройка... Это может занять 1-2 минуты.",
     "terminal": "SSH Терминал",
+    "broadcastTerminal": "Broadcast",
     "viewLogs": "Просмотр логов",
     "checkStatus": "Проверить статус",
     "resetStatus": "Сбросить статус",
@@ -871,6 +872,25 @@
     "connectionError": "Ошибка подключения",
     "wsError": "Ошибка WebSocket соединения",
     "tryAgain": "Попробовать снова"
+  },
+  "broadcast": {
+    "title": "Broadcast Terminal",
+    "nodes": "Ноды:",
+    "selectAll": "Выбрать все",
+    "deselectAll": "Снять выбор",
+    "execute": "Выполнить",
+    "cancel": "Отмена",
+    "commandPlaceholder": "Введите команду для выполнения на выбранных нодах...",
+    "hintEnter": "Enter для выполнения",
+    "running": "Выполняется...",
+    "done": "Готово",
+    "noSSHNodes": "Нет нод с настроенным SSH",
+    "timeout": "Таймаут",
+    "exitCode": "exit",
+    "empty": "Введите команду, чтобы увидеть вывод с нод",
+    "summaryTotal": "Всего:",
+    "summaryOk": "Успешно:",
+    "summaryFailed": "Ошибок:"
   },
   "backup": {
     "creating": "Создание бэкапа...",

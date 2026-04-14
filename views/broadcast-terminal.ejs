@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="<%= typeof lang !== 'undefined' ? lang : 'en' %>">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= typeof t !== 'undefined' ? t('broadcast.title') : 'Broadcast Terminal' %></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0d1117;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            color: #c9d1d9;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header h1 {
+            color: #c9d1d9;
+            font-size: 16px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #8b949e;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f85149;
+        }
+        .status-dot.connected { background: #3fb950; }
+        .status-dot.connecting { background: #d29922; animation: pulse 1s infinite; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            padding: 6px 12px;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            background: #21262d;
+            color: #c9d1d9;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            text-decoration: none;
+        }
+        .btn:hover { background: #30363d; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+        .btn-primary:hover { background: #388bfd; }
+        .btn-danger { border-color: #f85149; color: #f85149; }
+        .btn-danger:hover { background: rgba(248, 81, 73, 0.13); }
+
+        /* ── Control bar ── */
+        .control-bar {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 12px 20px;
+            flex-shrink: 0;
+        }
+
+        .node-selector {
+            margin-bottom: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .node-selector-label {
+            font-size: 12px;
+            color: #8b949e;
+            margin-right: 4px;
+        }
+
+        .node-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            border: 1px solid #30363d;
+            background: #21262d;
+            font-size: 12px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .node-chip:hover { background: #30363d; }
+        .node-chip.selected { border-color: #1f6feb; background: rgba(31, 111, 235, 0.15); color: #79c0ff; }
+        .node-chip.error { border-color: #f85149; }
+        .node-chip.running { border-color: #d29922; }
+        .node-chip.done-ok { border-color: #3fb950; }
+        .node-chip.done-fail { border-color: #f85149; }
+
+        .chip-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #8b949e;
+            flex-shrink: 0;
+        }
+        .node-chip.selected .chip-dot { background: #79c0ff; }
+        .node-chip.running .chip-dot { background: #d29922; animation: pulse 1s infinite; }
+        .node-chip.done-ok .chip-dot { background: #3fb950; }
+        .node-chip.done-fail .chip-dot { background: #f85149; }
+        .node-chip.error .chip-dot { background: #f85149; }
+
+        .select-all-btn {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 10px;
+        }
+
+        .command-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .command-input {
+            flex: 1;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #c9d1d9;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .command-input:focus { border-color: #58a6ff; }
+        .command-input::placeholder { color: #6e7681; }
+        .command-input:disabled { opacity: 0.5; }
+
+        .hint {
+            font-size: 11px;
+            color: #484f58;
+            flex-shrink: 0;
+        }
+
+        /* ── Output area ── */
+        .output-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #484f58;
+            font-size: 14px;
+            text-align: center;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .empty-state i { font-size: 32px; }
+
+        /* ── Node cards ── */
+        .node-card {
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .node-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: #161b22;
+            cursor: pointer;
+            user-select: none;
+            gap: 10px;
+        }
+        .node-card-header:hover { background: #1c2128; }
+
+        .node-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .node-card-ip {
+            color: #8b949e;
+            font-size: 12px;
+            font-weight: 400;
+        }
+
+        .node-card-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .badge-connecting { border-color: #d29922; color: #d29922; }
+        .badge-connected  { border-color: #8b949e;  color: #8b949e; }
+        .badge-running    { border-color: #d29922;  color: #d29922; }
+        .badge-ok         { border-color: #3fb950;  color: #3fb950; }
+        .badge-fail       { border-color: #f85149;  color: #f85149; }
+        .badge-error      { border-color: #f85149;  color: #f85149; }
+        .badge-timeout    { border-color: #ff7b72;  color: #ff7b72; }
+
+        .node-card-toggle {
+            color: #8b949e;
+            font-size: 14px;
+            transition: transform 0.2s;
+        }
+        .node-card.collapsed .node-card-toggle { transform: rotate(-90deg); }
+
+        .node-card-body {
+            background: #0d1117;
+            border-top: 1px solid #30363d;
+            padding: 10px 14px;
+        }
+        .node-card.collapsed .node-card-body { display: none; }
+
+        .node-output {
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #c9d1d9;
+            max-height: 300px;
+            overflow-y: auto;
+            min-height: 24px;
+        }
+        .node-output .stderr { color: #ff7b72; }
+
+        .node-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 11px;
+            color: #484f58;
+        }
+
+        /* ── Summary bar ── */
+        .summary-bar {
+            padding: 8px 20px;
+            background: #161b22;
+            border-top: 1px solid #30363d;
+            font-size: 12px;
+            color: #8b949e;
+            display: flex;
+            gap: 16px;
+            flex-shrink: 0;
+        }
+        .summary-bar .ok { color: #3fb950; }
+        .summary-bar .fail { color: #f85149; }
+
+        /* ── Overlay ── */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .overlay.hidden { display: none; }
+        .overlay-content { text-align: center; color: #c9d1d9; }
+        .overlay-content h2 { font-size: 18px; margin-bottom: 10px; }
+        .overlay-content p { color: #8b949e; font-size: 14px; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #30363d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-box {
+            background: rgba(248,81,73,0.13);
+            border: 1px solid #f85149;
+            border-radius: 6px;
+            padding: 15px;
+            color: #f85149;
+            max-width: 400px;
+        }
+        .error-box h2 { font-size: 15px; margin-bottom: 6px; }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0d1117; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+    </style>
+</head>
+<body>
+    <%
+    const i18nKeys = {
+        title:              typeof t !== 'undefined' ? t('broadcast.title')             : 'Broadcast Terminal',
+        selectAll:          typeof t !== 'undefined' ? t('broadcast.selectAll')         : 'Select All',
+        deselectAll:        typeof t !== 'undefined' ? t('broadcast.deselectAll')       : 'Deselect All',
+        execute:            typeof t !== 'undefined' ? t('broadcast.execute')           : 'Execute',
+        cancel:             typeof t !== 'undefined' ? t('broadcast.cancel')            : 'Cancel',
+        disconnect:         typeof t !== 'undefined' ? t('common.close')                : 'Close',
+        cmdPlaceholder:     typeof t !== 'undefined' ? t('broadcast.commandPlaceholder'): 'Enter command...',
+        nodesLabel:         typeof t !== 'undefined' ? t('broadcast.nodes')             : 'Nodes:',
+        connecting:         typeof t !== 'undefined' ? t('terminal.connecting')         : 'Connecting...',
+        connected:          typeof t !== 'undefined' ? t('terminal.connected')          : 'Connected',
+        disconnected:       typeof t !== 'undefined' ? t('terminal.disconnected')       : 'Disconnected',
+        wsError:            typeof t !== 'undefined' ? t('terminal.wsError')            : 'WebSocket connection error',
+        running:            typeof t !== 'undefined' ? t('broadcast.running')           : 'Running...',
+        done:               typeof t !== 'undefined' ? t('broadcast.done')              : 'Done',
+        noSSHNodes:         typeof t !== 'undefined' ? t('broadcast.noSSHNodes')        : 'No nodes with SSH configured',
+        summaryTotal:       typeof t !== 'undefined' ? t('broadcast.summaryTotal')      : 'Total:',
+        summaryOk:          typeof t !== 'undefined' ? t('broadcast.summaryOk')         : 'OK:',
+        summaryFailed:      typeof t !== 'undefined' ? t('broadcast.summaryFailed')     : 'Failed:',
+        timeout:            typeof t !== 'undefined' ? t('broadcast.timeout')           : 'Timed out',
+        exitCode:           typeof t !== 'undefined' ? t('broadcast.exitCode')          : 'exit',
+        empty:              typeof t !== 'undefined' ? t('broadcast.empty')             : 'Execute a command to see output',
+    };
+    %>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <h1><i class="ti ti-broadcast"></i> <%- i18nKeys.title %></h1>
+            <div class="status">
+                <div class="status-dot connecting" id="statusDot"></div>
+                <span id="statusText"><%- i18nKeys.connecting %></span>
+            </div>
+        </div>
+        <div class="header-right">
+            <button class="btn btn-danger" onclick="doDisconnect()">
+                <i class="ti ti-x"></i> <%- i18nKeys.disconnect %>
+            </button>
+        </div>
+    </div>
+
+    <!-- Control bar -->
+    <div class="control-bar">
+        <!-- Node selector -->
+        <div class="node-selector" id="nodeSelector">
+            <span class="node-selector-label"><%- i18nKeys.nodesLabel %></span>
+            <button class="btn select-all-btn" id="btnSelectAll" onclick="toggleSelectAll()"><%- i18nKeys.selectAll %></button>
+            <% nodes.forEach(function(node) { %>
+            <div class="node-chip selected"
+                 id="chip-<%= node._id %>"
+                 onclick="toggleNode('<%= node._id %>')"
+                 title="<%= node.ip %>:<%= node.sshPort %> (<%= node.sshUsername %>)">
+                <span class="chip-dot"></span>
+                <% if (node.flag) { %><span><%= node.flag %></span><% } %>
+                <%= node.name %>
+            </div>
+            <% }); %>
+        </div>
+        <!-- Command input -->
+        <div class="command-row">
+            <input
+                type="text"
+                class="command-input"
+                id="cmdInput"
+                placeholder="<%- i18nKeys.cmdPlaceholder %>"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+            >
+            <button class="btn btn-primary" id="btnExecute" onclick="doExecute()" disabled>
+                <i class="ti ti-player-play"></i> <%- i18nKeys.execute %>
+            </button>
+            <button class="btn btn-danger" id="btnCancel" onclick="doCancel()" style="display:none">
+                <i class="ti ti-player-stop"></i> <%- i18nKeys.cancel %>
+            </button>
+            <span class="hint"><%- typeof t !== 'undefined' ? t('broadcast.hintEnter') : 'Enter to execute' %></span>
+        </div>
+    </div>
+
+    <!-- Output area -->
+    <div class="output-area" id="outputArea">
+        <div class="empty-state" id="emptyState">
+            <i class="ti ti-terminal-2"></i>
+            <span><%- i18nKeys.empty %></span>
+        </div>
+    </div>
+
+    <!-- Summary bar (hidden until first run) -->
+    <div class="summary-bar" id="summaryBar" style="display:none">
+        <span><%- i18nKeys.summaryTotal %> <span id="sumTotal">0</span></span>
+        <span class="ok"><%- i18nKeys.summaryOk %> <span id="sumOk">0</span></span>
+        <span class="fail"><%- i18nKeys.summaryFailed %> <span id="sumFailed">0</span></span>
+    </div>
+
+    <!-- Connecting overlay -->
+    <div class="overlay" id="connectingOverlay">
+        <div class="overlay-content">
+            <div class="spinner"></div>
+            <h2><%- i18nKeys.connecting %></h2>
+        </div>
+    </div>
+
+    <!-- Error overlay -->
+    <div class="overlay hidden" id="errorOverlay">
+        <div class="overlay-content">
+            <div class="error-box">
+                <h2><i class="ti ti-alert-circle"></i> <%- i18nKeys.wsError %></h2>
+                <p id="errorText"></p>
+                <button class="btn" onclick="doReconnect()" style="margin-top:12px">
+                    <i class="ti ti-refresh"></i> <%- typeof t !== 'undefined' ? t('terminal.tryAgain') : 'Try Again' %>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Data from server ──────────────────────────────────────────────
+        const ALL_NODES = <%- JSON.stringify(nodes) %>;
+        const i18n = <%- JSON.stringify(i18nKeys) %>;
+
+        // ── State ─────────────────────────────────────────────────────────
+        let ws = null;
+        let running = false;
+        let selectedNodeIds = new Set(ALL_NODES.map(n => String(n._id)));
+        let cmdHistory = [];
+        let cmdHistoryIdx = -1;
+
+        try { cmdHistory = JSON.parse(localStorage.getItem('bc_cmd_history') || '[]'); } catch (_) {}
+
+        // ── WebSocket ─────────────────────────────────────────────────────
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/broadcast`);
+
+            ws.onopen = () => {};
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                switch (msg.type) {
+                    case 'ready':
+                        document.getElementById('connectingOverlay').classList.add('hidden');
+                        updateStatus('connected', i18n.connected);
+                        setExecuteEnabled(true);
+                        break;
+                    case 'node-status':
+                        handleNodeStatus(msg);
+                        break;
+                    case 'output':
+                        handleOutput(msg);
+                        break;
+                    case 'exit':
+                        handleExit(msg);
+                        break;
+                    case 'done':
+                        handleDone(msg);
+                        break;
+                    case 'error':
+                        if (running) {
+                            setRunning(false);
+                        } else {
+                            showError(msg.message);
+                        }
+                        break;
+                }
+            };
+
+            ws.onerror = () => showError(i18n.wsError);
+
+            ws.onclose = () => {
+                updateStatus('disconnected', i18n.disconnected);
+                setExecuteEnabled(false);
+                setRunning(false);
+            };
+        }
+
+        function doReconnect() {
+            document.getElementById('errorOverlay').classList.add('hidden');
+            document.getElementById('connectingOverlay').classList.remove('hidden');
+            updateStatus('connecting', i18n.connecting);
+            connect();
+        }
+
+        // ── Node selection ────────────────────────────────────────────────
+        function toggleNode(id) {
+            if (selectedNodeIds.has(id)) {
+                selectedNodeIds.delete(id);
+                document.getElementById('chip-' + id).classList.remove('selected');
+            } else {
+                selectedNodeIds.add(id);
+                document.getElementById('chip-' + id).classList.add('selected');
+            }
+            syncSelectAllBtn();
+        }
+
+        function toggleSelectAll() {
+            if (selectedNodeIds.size === ALL_NODES.length) {
+                selectedNodeIds.clear();
+                ALL_NODES.forEach(n => document.getElementById('chip-' + n._id).classList.remove('selected'));
+            } else {
+                ALL_NODES.forEach(n => {
+                    selectedNodeIds.add(String(n._id));
+                    document.getElementById('chip-' + n._id).classList.add('selected');
+                });
+            }
+            syncSelectAllBtn();
+        }
+
+        function syncSelectAllBtn() {
+            document.getElementById('btnSelectAll').textContent =
+                selectedNodeIds.size === ALL_NODES.length ? i18n.deselectAll : i18n.selectAll;
+        }
+
+        // ── Execute / Cancel ──────────────────────────────────────────────
+        function doExecute() {
+            const cmd = document.getElementById('cmdInput').value.trim();
+            if (!cmd || running || !ws || ws.readyState !== WebSocket.OPEN) return;
+            if (selectedNodeIds.size === 0) {
+                document.getElementById('nodeSelector').style.animation = 'pulse 0.4s';
+                setTimeout(() => document.getElementById('nodeSelector').style.animation = '', 400);
+                return;
+            }
+
+            // Save to history
+            if (cmdHistory[0] !== cmd) {
+                cmdHistory.unshift(cmd);
+                if (cmdHistory.length > 50) cmdHistory.pop();
+                try { localStorage.setItem('bc_cmd_history', JSON.stringify(cmdHistory)); } catch (_) {}
+            }
+            cmdHistoryIdx = -1;
+
+            clearOutput();
+            setRunning(true);
+
+            ws.send(JSON.stringify({
+                type: 'exec',
+                command: cmd,
+                nodeIds: Array.from(selectedNodeIds),
+            }));
+        }
+
+        function doCancel() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'cancel' }));
+            }
+            setRunning(false);
+        }
+
+        function doDisconnect() {
+            if (ws) ws.close();
+            window.close();
+            setTimeout(() => { window.location.href = '/panel/nodes'; }, 100);
+        }
+
+        // ── Message handlers ──────────────────────────────────────────────
+        function handleNodeStatus(msg) {
+            const card = ensureCard(msg.nodeId, msg.name, msg.ip);
+
+            if (msg.status === 'connecting') {
+                setChipState(msg.nodeId, 'running');
+                setCardBadge(card, 'connecting', i18n.connecting);
+            } else if (msg.status === 'connected') {
+                setCardBadge(card, 'connected', i18n.running);
+            } else if (msg.status === 'error') {
+                setChipState(msg.nodeId, 'error');
+                setCardBadge(card, 'error', msg.error || 'Error');
+                appendOutput(msg.nodeId, msg.error || 'SSH error', 'stderr');
+            }
+        }
+
+        function handleOutput(msg) {
+            appendOutput(msg.nodeId, msg.data, msg.stream);
+        }
+
+        function handleExit(msg) {
+            const card = ensureCard(msg.nodeId);
+            const ok = msg.code === 0;
+            const timedOut = msg.timedOut;
+
+            if (timedOut) {
+                setChipState(msg.nodeId, 'done-fail');
+                setCardBadge(card, 'timeout', i18n.timeout);
+            } else if (ok) {
+                setChipState(msg.nodeId, 'done-ok');
+                setCardBadge(card, 'ok', `${i18n.exitCode} 0  ${formatDuration(msg.durationMs)}`);
+            } else {
+                setChipState(msg.nodeId, 'done-fail');
+                setCardBadge(card, 'fail', `${i18n.exitCode} ${msg.code}  ${formatDuration(msg.durationMs)}`);
+            }
+
+            const footer = card.querySelector('.node-footer');
+            if (footer) footer.textContent = formatDuration(msg.durationMs);
+        }
+
+        function handleDone(msg) {
+            setRunning(false);
+            const s = msg.summary || {};
+            document.getElementById('sumTotal').textContent  = s.total  || 0;
+            document.getElementById('sumOk').textContent     = s.success || 0;
+            document.getElementById('sumFailed').textContent = s.failed  || 0;
+            document.getElementById('summaryBar').style.display = '';
+        }
+
+        // ── DOM helpers ───────────────────────────────────────────────────
+        const cardMap = new Map();
+
+        function clearOutput() {
+            const area = document.getElementById('outputArea');
+            area.innerHTML = '';
+            cardMap.clear();
+            document.getElementById('summaryBar').style.display = 'none';
+            ALL_NODES.forEach(n => {
+                if (selectedNodeIds.has(String(n._id))) setChipState(String(n._id), 'selected');
+            });
+        }
+
+        function ensureCard(nodeId, name, ip) {
+            if (cardMap.has(nodeId)) return cardMap.get(nodeId);
+
+            // Remove empty state if present
+            const emptyEl = document.getElementById('emptyState');
+            if (emptyEl) emptyEl.remove();
+
+            // Find node info
+            const node = ALL_NODES.find(n => String(n._id) === nodeId);
+            const displayName = name || node?.name || nodeId;
+            const displayIp   = ip   || node?.ip   || '';
+
+            const card = document.createElement('div');
+            card.className = 'node-card';
+            card.id = 'card-' + nodeId;
+            card.innerHTML = `
+                <div class="node-card-header" onclick="toggleCard('${nodeId}')">
+                    <div class="node-card-title">
+                        ${node?.flag ? `<span>${escHtml(node.flag)}</span>` : ''}
+                        <span>${escHtml(displayName)}</span>
+                        <span class="node-card-ip">${escHtml(displayIp)}</span>
+                    </div>
+                    <span class="node-card-badge badge-connecting" id="badge-${nodeId}">${i18n.connecting}</span>
+                    <i class="ti ti-chevron-down node-card-toggle"></i>
+                </div>
+                <div class="node-card-body">
+                    <pre class="node-output" id="output-${nodeId}"></pre>
+                    <div class="node-footer" id="footer-${nodeId}"></div>
+                </div>`;
+
+            document.getElementById('outputArea').appendChild(card);
+            cardMap.set(nodeId, card);
+            return card;
+        }
+
+        function appendOutput(nodeId, data, stream) {
+            const pre = document.getElementById('output-' + nodeId);
+            if (!pre) return;
+            if (stream === 'stderr') {
+                const span = document.createElement('span');
+                span.className = 'stderr';
+                span.textContent = data;
+                pre.appendChild(span);
+            } else {
+                pre.appendChild(document.createTextNode(data));
+            }
+            pre.scrollTop = pre.scrollHeight;
+        }
+
+        function setCardBadge(card, cls, text) {
+            const badge = card.querySelector('.node-card-badge');
+            if (!badge) return;
+            badge.className = `node-card-badge badge-${cls}`;
+            badge.textContent = text;
+        }
+
+        function setChipState(nodeId, state) {
+            const chip = document.getElementById('chip-' + nodeId);
+            if (!chip) return;
+            chip.className = 'node-chip ' + state;
+        }
+
+        function toggleCard(nodeId) {
+            const card = document.getElementById('card-' + nodeId);
+            if (card) card.classList.toggle('collapsed');
+        }
+
+        function setRunning(val) {
+            running = val;
+            document.getElementById('btnExecute').style.display  = val ? 'none'  : '';
+            document.getElementById('btnCancel').style.display   = val ? ''      : 'none';
+            document.getElementById('cmdInput').disabled         = val;
+        }
+
+        function setExecuteEnabled(val) {
+            document.getElementById('btnExecute').disabled = !val;
+        }
+
+        function updateStatus(cls, text) {
+            document.getElementById('statusDot').className  = 'status-dot ' + cls;
+            document.getElementById('statusText').textContent = text;
+        }
+
+        function showError(msg) {
+            document.getElementById('connectingOverlay').classList.add('hidden');
+            document.getElementById('errorOverlay').classList.remove('hidden');
+            document.getElementById('errorText').textContent = msg;
+            updateStatus('disconnected', i18n.disconnected);
+        }
+
+        function formatDuration(ms) {
+            if (!ms && ms !== 0) return '';
+            if (ms < 1000) return ms + 'ms';
+            return (ms / 1000).toFixed(1) + 's';
+        }
+
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // ── Keyboard shortcuts ────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('cmdInput');
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    doExecute();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (cmdHistoryIdx < cmdHistory.length - 1) {
+                        cmdHistoryIdx++;
+                        input.value = cmdHistory[cmdHistoryIdx];
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (cmdHistoryIdx > 0) {
+                        cmdHistoryIdx--;
+                        input.value = cmdHistory[cmdHistoryIdx];
+                    } else {
+                        cmdHistoryIdx = -1;
+                        input.value = '';
+                    }
+                }
+            });
+
+            connect();
+        });
+    </script>
+</body>
+</html>

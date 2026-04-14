@@ -253,6 +253,7 @@
     "autoSetupConfirmXray": "Setup node automatically via SSH?\n\nThis will:\n• Install Xray-core (latest version)\n• Generate Reality keys (if needed)\n• Install CC Agent (no-SSH management)\n• Configure firewall\n• Start services",
     "setupRunning": "Setup in progress... This may take 1-2 minutes.",
     "terminal": "SSH Terminal",
+    "broadcastTerminal": "Broadcast",
     "viewLogs": "View Logs",
     "checkStatus": "Check Status",
     "resetStatus": "Reset Status",
@@ -871,6 +872,25 @@
     "connectionError": "Connection error",
     "wsError": "WebSocket connection error",
     "tryAgain": "Try Again"
+  },
+  "broadcast": {
+    "title": "Broadcast Terminal",
+    "nodes": "Nodes:",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "execute": "Execute",
+    "cancel": "Cancel",
+    "commandPlaceholder": "Enter command to run on all selected nodes...",
+    "hintEnter": "Enter to execute",
+    "running": "Running...",
+    "done": "Done",
+    "noSSHNodes": "No nodes with SSH configured",
+    "timeout": "Timed out",
+    "exitCode": "exit",
+    "empty": "Execute a command to see output from nodes",
+    "summaryTotal": "Total:",
+    "summaryOk": "OK:",
+    "summaryFailed": "Failed:"
   },
   "backup": {
     "creating": "Creating backup...",

@@ -596,7 +596,9 @@ async function startServer() {
 function setupWebSocketServer(server) {
     const wssTerminal = new WebSocketServer({ noServer: true });
     const wssLogs = new WebSocketServer({ noServer: true });
+    const wssBroadcast = new WebSocketServer({ noServer: true });
     const sshTerminal = require('./src/services/sshTerminal');
+    const BroadcastSession = require('./src/services/broadcastTerminal');
     const crypto = require('crypto');
     
     server.on('upgrade', (request, socket, head) => {
@@ -625,6 +627,10 @@ function setupWebSocketServer(server) {
             } else if (pathname === '/ws/logs') {
                 wssLogs.handleUpgrade(request, socket, head, (ws) => {
                     wssLogs.emit('connection', ws, request);
+                });
+            } else if (pathname === '/ws/broadcast') {
+                wssBroadcast.handleUpgrade(request, socket, head, (ws) => {
+                    wssBroadcast.emit('connection', ws, request);
                 });
             } else {
                 socket.destroy();
@@ -687,6 +693,73 @@ function setupWebSocketServer(server) {
         }
     });
     
+    // Broadcast Terminal WebSocket
+    wssBroadcast.on('connection', async (ws, req) => {
+        logger.info(`[WS] Broadcast terminal connected`);
+
+        const safeSend = (data) => {
+            if (ws.readyState === 1) ws.send(JSON.stringify(data));
+        };
+
+        const session = new BroadcastSession(ws);
+        safeSend({ type: 'ready' });
+
+        ws.on('message', async (message) => {
+            try {
+                const msg = JSON.parse(message.toString());
+
+                if (msg.type === 'exec') {
+                    const command = (msg.command || '').trim();
+                    const timeoutMs = typeof msg.timeout === 'number' ? msg.timeout * 1000 : undefined;
+
+                    let nodeIds = msg.nodeIds;
+                    let nodes;
+
+                    if (nodeIds === 'all') {
+                        nodes = await HyNode.find({}).lean();
+                    } else if (Array.isArray(nodeIds) && nodeIds.length > 0) {
+                        nodes = await HyNode.find({ _id: { $in: nodeIds } }).lean();
+                    } else {
+                        safeSend({ type: 'error', message: 'No nodes specified' });
+                        return;
+                    }
+
+                    // Filter to nodes with SSH credentials, deduplicate by IP
+                    const seenIps = new Set();
+                    nodes = nodes.filter((n) => {
+                        if (!n.ssh?.password && !n.ssh?.privateKey) return false;
+                        if (seenIps.has(n.ip)) return false;
+                        seenIps.add(n.ip);
+                        return true;
+                    });
+
+                    if (nodes.length === 0) {
+                        safeSend({ type: 'error', message: 'No nodes with SSH credentials found' });
+                        return;
+                    }
+
+                    logger.info(`[WS] Broadcast exec: "${command.substring(0, 100)}" on ${nodes.length} nodes`);
+                    await session.exec(nodes, command, timeoutMs);
+
+                } else if (msg.type === 'cancel') {
+                    session.cancel();
+                }
+            } catch (err) {
+                logger.error(`[WS] Broadcast error: ${err.message}`);
+                safeSend({ type: 'error', message: err.message });
+            }
+        });
+
+        ws.on('close', () => {
+            logger.info('[WS] Broadcast terminal disconnected');
+            session.destroy();
+        });
+
+        ws.on('error', () => {
+            session.destroy();
+        });
+    });
+
     // Real-time Logs WebSocket
     wssLogs.on('connection', (ws) => {
         logger.info(`[WS] Logs stream connected`);
