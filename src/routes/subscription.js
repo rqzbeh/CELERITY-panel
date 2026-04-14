@@ -299,14 +299,7 @@ function generateVlessURI(user, node) {
         if (xray.xhttpMode && xray.xhttpMode !== 'auto') params.set('mode', xray.xhttpMode);
     }
 
-    const transportLabel = {
-        tcp: security === 'reality' ? 'Reality' : 'TCP',
-        ws: 'WebSocket',
-        grpc: 'gRPC',
-        xhttp: 'XHTTP',
-    }[transport] || transport.toUpperCase();
-
-    const name = `${node.flag || ''} ${node.name} ${transportLabel}`.trim();
+    const name = `${node.flag || ''} ${node.name}`.trim();
     return `vless://${uuid}@${host}:${port}?${params.toString()}#${encodeURIComponent(name)}`;
 }
 
@@ -659,8 +652,7 @@ function _buildClashVlessProxy(user, node) {
     const transport = xray.transport || 'tcp';
     const security = xray.security || 'reality';
     const fingerprint = xray.fingerprint || 'chrome';
-    const transportLabel = { tcp: security === 'reality' ? 'Reality' : 'TCP', ws: 'WebSocket', grpc: 'gRPC', xhttp: 'XHTTP' }[transport] || transport;
-    const name = `${node.flag || ''} ${node.name} ${transportLabel}`.trim();
+    const name = `${node.flag || ''} ${node.name}`.trim();
 
     // Clash Meta doesn't support splithttp/xhttp - skip these nodes
     if (transport === 'xhttp') {
@@ -784,8 +776,7 @@ function _buildSingboxVlessOutbound(user, node) {
     const transport = xray.transport || 'tcp';
     const security = xray.security || 'reality';
     const fingerprint = xray.fingerprint || 'chrome';
-    const transportLabel = { tcp: security === 'reality' ? 'Reality' : 'TCP', ws: 'WebSocket', grpc: 'gRPC', xhttp: 'XHTTP' }[transport] || transport;
-    const tag = `${node.flag || ''} ${node.name} ${transportLabel}`.trim();
+    const tag = `${node.flag || ''} ${node.name}`.trim();
 
     // Sing-box doesn't support splithttp/xhttp - skip these nodes
     if (transport === 'xhttp') {
@@ -860,8 +851,7 @@ function generateV2rayJSON(user, nodes, routing) {
             const host = node.domain || node.ip;
             const transport = xray.transport || 'tcp';
             const security = xray.security || 'reality';
-            const transportLabel = { tcp: security === 'reality' ? 'Reality' : 'TCP', ws: 'WebSocket', grpc: 'gRPC', xhttp: 'XHTTP' }[transport] || transport;
-            const tag = `${node.flag || ''} ${node.name} ${transportLabel}`.trim();
+            const tag = `${node.flag || ''} ${node.name}`.trim();
 
             const streamSettings = { network: transport === 'xhttp' ? 'splithttp' : transport };
 
@@ -1120,14 +1110,10 @@ async function generateHTML(user, nodes, token, baseUrl, settings) {
         if (node.type === 'xray') {
             const uri = generateVlessURI(user, node);
             if (uri) {
-                const xray = node.xray || {};
-                const transport = xray.transport || 'tcp';
-                const security = xray.security || 'reality';
-                const label = { tcp: security === 'reality' ? 'Reality' : 'TCP', ws: 'WebSocket', grpc: 'gRPC' }[transport] || transport;
                 allConfigs.push({
                     location: node.name,
                     flag: node.flag || '🌐',
-                    name: `VLESS ${label}`,
+                    name: 'VLESS',
                     uri,
                 });
             }
