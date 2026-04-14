@@ -157,7 +157,7 @@
         .command-row {
             display: flex;
             gap: 8px;
-            align-items: center;
+            align-items: flex-start;
         }
 
         .command-input {
@@ -171,10 +171,23 @@
             font-size: 13px;
             outline: none;
             transition: border-color 0.15s;
+            resize: none;
+            overflow: hidden;
+            min-height: 36px;
+            max-height: 200px;
+            line-height: 1.5;
         }
         .command-input:focus { border-color: #58a6ff; }
         .command-input::placeholder { color: #6e7681; }
         .command-input:disabled { opacity: 0.5; }
+
+        .command-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
 
         .hint {
             font-size: 11px;
@@ -409,23 +422,25 @@
         </div>
         <!-- Command input -->
         <div class="command-row">
-            <input
-                type="text"
+            <textarea
                 class="command-input"
                 id="cmdInput"
                 placeholder="<%- i18nKeys.cmdPlaceholder %>"
+                rows="1"
                 autocomplete="off"
                 autocorrect="off"
                 autocapitalize="off"
                 spellcheck="false"
-            >
-            <button class="btn btn-primary" id="btnExecute" onclick="doExecute()" disabled>
-                <i class="ti ti-player-play"></i> <%- i18nKeys.execute %>
-            </button>
-            <button class="btn btn-danger" id="btnCancel" onclick="doCancel()" style="display:none">
-                <i class="ti ti-player-stop"></i> <%- i18nKeys.cancel %>
-            </button>
-            <span class="hint"><%- typeof t !== 'undefined' ? t('broadcast.hintEnter') : 'Enter to execute' %></span>
+            ></textarea>
+            <div class="command-actions">
+                <button class="btn btn-primary" id="btnExecute" onclick="doExecute()" disabled>
+                    <i class="ti ti-player-play"></i> <%- i18nKeys.execute %>
+                </button>
+                <button class="btn btn-danger" id="btnCancel" onclick="doCancel()" style="display:none">
+                    <i class="ti ti-player-stop"></i> <%- i18nKeys.cancel %>
+                </button>
+                <span class="hint">Ctrl+Enter</span>
+            </div>
         </div>
     </div>
 
@@ -765,28 +780,47 @@
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
+        // ── Textarea auto-resize ──────────────────────────────────────────
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.overflow = 'hidden';
+            const next = Math.min(el.scrollHeight, 200);
+            el.style.height = next + 'px';
+            if (el.scrollHeight > 200) el.style.overflow = 'auto';
+        }
+
         // ── Keyboard shortcuts ────────────────────────────────────────────
         document.addEventListener('DOMContentLoaded', () => {
             const input = document.getElementById('cmdInput');
 
+            input.addEventListener('input', () => autoResize(input));
+
             input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
+                const multiline = input.value.includes('\n');
+
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                     e.preventDefault();
                     doExecute();
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (cmdHistoryIdx < cmdHistory.length - 1) {
+                } else if (e.key === 'ArrowUp' && !multiline) {
+                    const cursorAtStart = input.selectionStart === 0;
+                    if (cursorAtStart && cmdHistoryIdx < cmdHistory.length - 1) {
+                        e.preventDefault();
                         cmdHistoryIdx++;
                         input.value = cmdHistory[cmdHistoryIdx];
+                        autoResize(input);
                     }
-                } else if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (cmdHistoryIdx > 0) {
-                        cmdHistoryIdx--;
-                        input.value = cmdHistory[cmdHistoryIdx];
-                    } else {
-                        cmdHistoryIdx = -1;
-                        input.value = '';
+                } else if (e.key === 'ArrowDown' && !multiline) {
+                    const cursorAtEnd = input.selectionStart === input.value.length;
+                    if (cursorAtEnd) {
+                        e.preventDefault();
+                        if (cmdHistoryIdx > 0) {
+                            cmdHistoryIdx--;
+                            input.value = cmdHistory[cmdHistoryIdx];
+                        } else {
+                            cmdHistoryIdx = -1;
+                            input.value = '';
+                        }
+                        autoResize(input);
                     }
                 }
             });
