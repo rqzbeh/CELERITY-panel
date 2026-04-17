@@ -111,13 +111,12 @@ class SyncService {
                     agentVersion: data.agent_version || '',
                     agentStatus: 'online',
                     agentLastSeen: new Date(),
-                    onlineUsers: data.users_count || 0,
                     status: 'online',
                     healthFailures: 0,
                 },
             });
 
-            return { online: true, xrayVersion: data.xray_version, usersCount: data.users_count };
+            return { online: true, xrayVersion: data.xray_version };
         } catch (error) {
             logger.warn(`[Agent] ${node.name} health check failed: ${error.message}`);
 
@@ -397,8 +396,6 @@ class SyncService {
             const nodeRx = nodeTraffic.rx || 0;
 
             const userEntries = Object.entries(users);
-            if (userEntries.length === 0 && nodeTx === 0 && nodeRx === 0) return;
-
             const bulkOps = [];
             const now = new Date();
 
@@ -425,15 +422,18 @@ class SyncService {
                 this._checkUserLimits(userEntries.map(([email]) => email)).catch(() => {});
             }
 
+            // Online = users with non-zero traffic in the last poll interval.
+            // Always update (even to 0) so the counter falls back after idle intervals.
+            const activeUsers = bulkOps.length;
+            const nodeUpdate = { $set: { onlineUsers: activeUsers } };
             if (nodeTx > 0 || nodeRx > 0) {
-                await HyNode.updateOne(
-                    { _id: node._id },
-                    {
-                        $inc: { 'traffic.tx': nodeTx, 'traffic.rx': nodeRx },
-                        $set: { 'traffic.lastUpdate': now },
-                    }
-                );
-                logger.info(`[Agent Stats] ${node.name}: ${bulkOps.length} users, node ↑${(nodeTx / 1024 / 1024).toFixed(1)}MB ↓${(nodeRx / 1024 / 1024).toFixed(1)}MB`);
+                nodeUpdate.$inc = { 'traffic.tx': nodeTx, 'traffic.rx': nodeRx };
+                nodeUpdate.$set['traffic.lastUpdate'] = now;
+            }
+            await HyNode.updateOne({ _id: node._id }, nodeUpdate);
+
+            if (nodeTx > 0 || nodeRx > 0) {
+                logger.info(`[Agent Stats] ${node.name}: ${activeUsers} online, node ↑${(nodeTx / 1024 / 1024).toFixed(1)}MB ↓${(nodeRx / 1024 / 1024).toFixed(1)}MB`);
             }
         } catch (error) {
             logger.error(`[Agent Stats] ${node.name} error: ${error.message}`);
@@ -441,8 +441,10 @@ class SyncService {
     }
 
     /**
-     * Get online users and health info from Xray node via Agent GET /info.
-     * Also updates xrayVersion and agentStatus in DB.
+     * Health-check an Xray node via Agent GET /info and refresh metadata
+     * (xrayVersion, agentVersion, agentStatus, status). Does NOT touch
+     * `onlineUsers` — that counter is owned by collectXrayTrafficStats,
+     * which derives it from per-user traffic deltas over the poll interval.
      */
     async getXrayOnlineUsers(node) {
         if (!(node.xray?.agentToken)) {
@@ -454,13 +456,10 @@ class SyncService {
             const response = await this._agentRequest(node, 'GET', '/info');
             const data = response.data || {};
 
-            const usersCount = data.users_count || 0;
-
             const prevNode = await HyNode.findOneAndUpdate(
                 { _id: node._id },
                 {
                     $set: {
-                        onlineUsers: usersCount,
                         status: 'online',
                         healthFailures: 0,
                         xrayVersion: data.xray_version || '',
@@ -475,7 +474,7 @@ class SyncService {
                 webhook.emit(webhook.EVENTS.NODE_ONLINE, { nodeId: node._id, name: node.name });
             }
 
-            return usersCount;
+            return 0;
         } catch (error) {
             logger.warn(`[Agent] ${node.name}: unavailable - ${error.message}`);
 
