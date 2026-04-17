@@ -1,74 +1,70 @@
 package main
 
-import (
-	"context"
-	"log"
-	"strings"
-	"sync"
-)
+import "strings"
 
-// UserTraffic holds accumulated uplink/downlink bytes for a user
+// UserTraffic holds uplink/downlink bytes.
+// For users: Tx = client uplink (client -> server), Rx = client downlink (server -> client).
+// For the node: Tx/Rx are the sum of outbound uplink/downlink across all non-API outbounds,
+// which is the real traffic that actually traversed Xray.
 type UserTraffic struct {
 	Tx int64 `json:"tx"` // uplink bytes
 	Rx int64 `json:"rx"` // downlink bytes
 }
 
-// StatsStore accumulates traffic stats between panel polls
-type StatsStore struct {
-	mu      sync.Mutex
-	traffic map[string]*UserTraffic // keyed by email
+// Snapshot is the parsed result of a single Xray QueryStats call with an empty
+// pattern. Users is keyed by email (which equals the panel userId). Node is the
+// aggregated node-level traffic derived from outbound stats.
+type Snapshot struct {
+	Users map[string]*UserTraffic
+	Node  UserTraffic
 }
 
-func NewStatsStore() *StatsStore {
-	return &StatsStore{
-		traffic: make(map[string]*UserTraffic),
-	}
-}
+// apiOutboundTag is the tag of the internal Xray API outbound; its counters
+// represent gRPC control-plane traffic and must not be attributed to the node.
+const apiOutboundTag = "API"
 
-// CollectFromXray fetches stats from Xray (with reset) and adds to local accumulator.
-// Xray resets its own counters after each query with reset=true.
-func (s *StatsStore) CollectFromXray(ctx context.Context, xc *XrayClient) error {
-	rawStats, err := xc.QueryStats(ctx, true)
-	if err != nil {
-		return err
+// ParseSnapshot converts a flat map of Xray stat names to a structured Snapshot.
+// Expected stat name formats:
+//   - user>>>{email}>>>traffic>>>{uplink|downlink}
+//   - outbound>>>{tag}>>>traffic>>>{uplink|downlink}
+//   - inbound>>>{tag}>>>traffic>>>{uplink|downlink}   (ignored here; reserved for future metrics)
+func ParseSnapshot(rawStats map[string]int64) Snapshot {
+	snap := Snapshot{
+		Users: make(map[string]*UserTraffic, len(rawStats)/2),
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	for name, value := range rawStats {
-		// Name format: user>>>email>>>traffic>>>uplink or downlink
 		parts := strings.Split(name, ">>>")
-		if len(parts) != 4 || parts[0] != "user" || parts[2] != "traffic" {
+		if len(parts) != 4 || parts[2] != "traffic" {
 			continue
 		}
-		email := parts[1]
-		direction := parts[3]
+		kind, id, direction := parts[0], parts[1], parts[3]
 
-		if s.traffic[email] == nil {
-			s.traffic[email] = &UserTraffic{}
-		}
-		switch direction {
-		case "uplink":
-			s.traffic[email].Tx += value
-		case "downlink":
-			s.traffic[email].Rx += value
+		switch kind {
+		case "user":
+			ut := snap.Users[id]
+			if ut == nil {
+				ut = &UserTraffic{}
+				snap.Users[id] = ut
+			}
+			switch direction {
+			case "uplink":
+				ut.Tx += value
+			case "downlink":
+				ut.Rx += value
+			}
+		case "outbound":
+			if id == apiOutboundTag {
+				continue
+			}
+			switch direction {
+			case "uplink":
+				snap.Node.Tx += value
+			case "downlink":
+				snap.Node.Rx += value
+			}
 		}
 	}
 
-	if len(rawStats) > 0 {
-		log.Printf("[stats] Collected %d stat entries from Xray", len(rawStats))
-	}
-	return nil
-}
-
-// GetAndReset returns all accumulated stats and resets the local store.
-// Called when the panel polls /stats.
-func (s *StatsStore) GetAndReset() map[string]*UserTraffic {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	result := s.traffic
-	s.traffic = make(map[string]*UserTraffic)
-	return result
+	return snap
 }

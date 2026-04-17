@@ -15,7 +15,6 @@ import (
 type API struct {
 	cfg        *Config
 	userStore  *UserStore
-	statsStore *StatsStore
 	xrayClient *XrayClient
 }
 
@@ -192,23 +191,38 @@ func (a *API) handleRemoveUser(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]string{"status": "ok"})
 }
 
-// GET /stats — collect fresh stats from Xray, return accumulated totals, then reset
+// GET /stats — take one atomic snapshot from Xray (reset=true) and return
+// { users: { <userId>: {tx, rx} }, node: {tx, rx} }.
+// Users carry per-user uplink/downlink; node is the sum of outbound uplink/downlink
+// across all non-API outbounds (i.e. real traffic that traversed Xray).
 func (a *API) handleStats(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
-	if err := a.statsStore.CollectFromXray(ctx, a.xrayClient); err != nil {
-		log.Printf("[stats] CollectFromXray: %v", err)
+	rawStats, err := a.xrayClient.QueryStats(ctx, "", true)
+	if err != nil {
+		log.Printf("[stats] QueryStats: %v", err)
+		jsonOK(w, map[string]any{
+			"users": map[string]any{},
+			"node":  map[string]int64{"tx": 0, "rx": 0},
+		})
+		return
 	}
 
-	raw := a.statsStore.GetAndReset()
+	snap := ParseSnapshot(rawStats)
 
-	result := make(map[string]map[string]int64, len(raw))
-	for email, t := range raw {
-		result[email] = map[string]int64{"tx": t.Tx, "rx": t.Rx}
+	users := make(map[string]map[string]int64, len(snap.Users))
+	for email, t := range snap.Users {
+		if t.Tx == 0 && t.Rx == 0 {
+			continue
+		}
+		users[email] = map[string]int64{"tx": t.Tx, "rx": t.Rx}
 	}
 
-	jsonOK(w, result)
+	jsonOK(w, map[string]any{
+		"users": users,
+		"node":  map[string]int64{"tx": snap.Node.Tx, "rx": snap.Node.Rx},
+	})
 }
 
 // POST /restart — restart Xray service, then restore all users (Xray loses state on restart)

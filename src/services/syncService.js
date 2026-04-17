@@ -377,7 +377,10 @@ class SyncService {
 
     /**
      * Collect traffic stats from Xray node via Agent GET /stats.
-     * Agent accumulates stats between polls (Xray counters are reset on each agent collection).
+     * Response shape (agent v2.0.0+):
+     *   { users: { <userId>: { tx, rx } }, node: { tx, rx } }
+     * Node tx/rx come from Xray outbound stats (real traffic that traversed
+     * Xray), not from summing per-user counters.
      */
     async collectXrayTrafficStats(node) {
         if (!(node.xray?.agentToken)) {
@@ -387,22 +390,22 @@ class SyncService {
 
         try {
             const response = await this._agentRequest(node, 'GET', '/stats');
-            const stats = response.data || {};
+            const data = response.data || {};
+            const users = data.users || {};
+            const nodeTraffic = data.node || { tx: 0, rx: 0 };
+            const nodeTx = nodeTraffic.tx || 0;
+            const nodeRx = nodeTraffic.rx || 0;
 
-            if (Object.keys(stats).length === 0) return;
+            const userEntries = Object.entries(users);
+            if (userEntries.length === 0 && nodeTx === 0 && nodeRx === 0) return;
 
-            let nodeTx = 0;
-            let nodeRx = 0;
             const bulkOps = [];
             const now = new Date();
 
-            for (const [email, traffic] of Object.entries(stats)) {
+            for (const [email, traffic] of userEntries) {
                 const tx = traffic.tx || 0;
                 const rx = traffic.rx || 0;
                 if (tx === 0 && rx === 0) continue;
-
-                nodeTx += tx;
-                nodeRx += rx;
 
                 // email == userId (as set in configGenerator and agent)
                 bulkOps.push({
@@ -419,7 +422,7 @@ class SyncService {
             if (bulkOps.length > 0) {
                 const result = await HyUser.bulkWrite(bulkOps, { ordered: false });
                 logger.debug(`[Agent Stats] ${node.name}: updated ${result.modifiedCount}/${bulkOps.length} users`);
-                this._checkUserLimits(Object.keys(stats)).catch(() => {});
+                this._checkUserLimits(userEntries.map(([email]) => email)).catch(() => {});
             }
 
             if (nodeTx > 0 || nodeRx > 0) {
@@ -430,7 +433,7 @@ class SyncService {
                         $set: { 'traffic.lastUpdate': now },
                     }
                 );
-                logger.info(`[Agent Stats] ${node.name}: ${bulkOps.length} users, ↑${(nodeTx / 1024 / 1024).toFixed(1)}MB ↓${(nodeRx / 1024 / 1024).toFixed(1)}MB`);
+                logger.info(`[Agent Stats] ${node.name}: ${bulkOps.length} users, node ↑${(nodeTx / 1024 / 1024).toFixed(1)}MB ↓${(nodeRx / 1024 / 1024).toFixed(1)}MB`);
             }
         } catch (error) {
             logger.error(`[Agent Stats] ${node.name} error: ${error.message}`);

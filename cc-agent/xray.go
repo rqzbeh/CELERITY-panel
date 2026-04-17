@@ -72,10 +72,12 @@ func (c *XrayClient) RemoveUser(ctx context.Context, email string) error {
 	return nil
 }
 
-// QueryStats fetches traffic stats from Xray; reset=true clears counters in Xray
-func (c *XrayClient) QueryStats(ctx context.Context, reset bool) (map[string]int64, error) {
+// QueryStats fetches traffic stats from Xray matching the given pattern.
+// An empty pattern returns all stats (users, inbounds, outbounds) in one call.
+// reset=true atomically clears the matched counters in Xray.
+func (c *XrayClient) QueryStats(ctx context.Context, pattern string, reset bool) (map[string]int64, error) {
 	resp, err := c.stats.QueryStats(ctx, &stats_command.QueryStatsRequest{
-		Pattern: "user>>>",
+		Pattern: pattern,
 		Reset_:  reset,
 	})
 	if err != nil {

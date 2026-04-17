@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const Version = "1.0.0"
+const Version = "2.0.0"
 
 var startTime = time.Now()
 
@@ -36,14 +36,15 @@ func main() {
 		log.Printf("[main] Warning: could not load users from disk: %v", err)
 	}
 
-	statsStore := NewStatsStore()
-
 	xrayClient, err := NewXrayClient(cfg)
 	if err != nil {
 		log.Printf("[main] Warning: could not connect to Xray gRPC: %v (will retry on use)", err)
 	}
 
-	// Restore users to Xray after brief startup delay (Xray might still be starting)
+	// Restore users to Xray after a brief startup delay (Xray might still be starting),
+	// then discard the first Xray stats snapshot. Xray accumulates counters from boot,
+	// and without this discard the panel's first /stats poll would attribute all of
+	// that since-boot traffic to the current interval, producing a cold-start spike.
 	go func() {
 		time.Sleep(3 * time.Second)
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -54,17 +55,10 @@ func main() {
 		} else {
 			log.Printf("[main] Restored %d users to Xray", count)
 		}
-	}()
-
-	// Periodic stats collection from Xray every 60s
-	go func() {
-		for {
-			time.Sleep(60 * time.Second)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			if err := statsStore.CollectFromXray(ctx, xrayClient); err != nil {
-				log.Printf("[stats] Collection error: %v", err)
-			}
-			cancel()
+		if _, err := xrayClient.QueryStats(ctx, "", true); err != nil {
+			log.Printf("[main] Startup stats discard failed: %v", err)
+		} else {
+			log.Printf("[main] Startup stats discarded (cold-start reset)")
 		}
 	}()
 
@@ -81,7 +75,6 @@ func main() {
 	api := &API{
 		cfg:        cfg,
 		userStore:  userStore,
-		statsStore: statsStore,
 		xrayClient: xrayClient,
 	}
 
