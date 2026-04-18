@@ -10,6 +10,7 @@ CERT_PATH="${CERT_PATH:-}"
 KEY_PATH="${KEY_PATH:-}"
 ALLOW_ALL_PORTS="${ALLOW_ALL_PORTS:-0}"
 ALLOWED_PORTS="${ALLOWED_PORTS:-443,8443}"
+REMOVE_DEFAULT_SITE="${REMOVE_DEFAULT_SITE:-0}"
 CONF_PATH="/etc/nginx/conf.d/celerity-vless-path-proxy.conf"
 
 if [[ -z "${CERT_PATH}" || -z "${KEY_PATH}" ]]; then
@@ -57,7 +58,7 @@ build_ports_map() {
     local p
     p="$(echo "${raw}" | xargs)"
     [[ -z "${p}" ]] && continue
-    if [[ ! "${p}" =~ ^[1-9][0-9]{0,4}$ ]] || (( p < 1 || p > 65535 )); then
+    if [[ ! "${p}" =~ ^[0-9]+$ ]] || (( p < 1 || p > 65535 )); then
       echo "Invalid port in ALLOWED_PORTS: ${p}" >&2
       exit 1
     fi
@@ -161,7 +162,9 @@ EOF
 install_nginx
 write_config
 
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+if [[ "${REMOVE_DEFAULT_SITE}" == "1" ]]; then
+  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+fi
 nginx -t
 systemctl enable --now nginx
 systemctl reload nginx
@@ -173,6 +176,7 @@ Config: ${CONF_PATH}
 Current mode:
   ALLOW_ALL_PORTS=${ALLOW_ALL_PORTS}
   ALLOWED_PORTS=${ALLOWED_PORTS}
+  REMOVE_DEFAULT_SITE=${REMOVE_DEFAULT_SITE}
 
 IMPORTANT:
   - Subscription paths should look like /{internalPort}/...

@@ -68,7 +68,7 @@ If you run Xray behind Nginx and want links to use path-based internal port rout
 ```bash
 sudo CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem \
      KEY_PATH=/etc/letsencrypt/live/example.com/privkey.pem \
-     ALLOWED_PORTS=443,8443,2053 \
+     ALLOWED_PORTS=2053,2083,8443 \
      bash ./scripts/install-nginx-vless-path-proxy.sh
 ```
 
@@ -82,6 +82,7 @@ What it configures:
 Security notes:
 - By default only ports in `ALLOWED_PORTS` are routable.
 - To allow all internal ports (not recommended), set `ALLOW_ALL_PORTS=1`.
+- If your nginx already has a default TLS vhost, set `REMOVE_DEFAULT_SITE=1` only when you explicitly want this installer to replace it.
 - Do **not** include panel/admin/internal service ports unless you intentionally want them exposed.
 
 **4. Open** `https://your-domain/panel`
