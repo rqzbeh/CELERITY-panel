@@ -57,7 +57,7 @@ cp docker.env.example .env
 nano .env  # Set your domain, email, and secrets
 docker compose up -d
 ```
-This source `docker-compose.yml` now starts the panel on `127.0.0.1:3000` (HTTP only), so terminate TLS and proxy requests with your own host Nginx/Traefik/Caddy.
+This source `docker-compose.yml` now starts the panel on `127.0.0.1:3000` (HTTP only). You must terminate TLS and proxy requests with your own host Nginx/Traefik/Caddy before the panel is accessible over HTTPS.
 
 **3. Configure your host reverse proxy** to forward `https://your-domain` to `http://127.0.0.1:3000` (required for build-from-source Docker Compose installs).
 
