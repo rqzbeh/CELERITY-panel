@@ -524,7 +524,7 @@ function generateXrayConfig(node, users) {
             // VLESS inbound
             {
                 listen: '0.0.0.0',
-                port: node.port || 8443,
+                port: node.port || 443,
                 protocol: 'vless',
                 tag: inboundTag,
                 settings: {

@@ -219,7 +219,7 @@ function getNodeConfigs(node) {
 
 function getVlessPublicEndpoint(node, xray = {}) {
     const host = node.domain || node.ip;
-    const backendPort = node.port || 8443;
+    const backendPort = node.port || 443;
     const transport = xray.transport || 'tcp';
     const security = xray.security || 'reality';
     const useNginxPathProxy = transport === 'ws' || transport === 'grpc' || transport === 'xhttp';

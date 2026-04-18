@@ -819,7 +819,7 @@ async function setupXrayNode(node, options = {}) {
     if (!exitOnly) {
         // Detect port conflict: Xray on the same VPS as the panel reverse proxy using port 443/80
         const sameVps = isSameVpsAsPanel(node);
-        const nodePort = node.port || 8443;
+        const nodePort = node.port || 443;
         if (sameVps && (nodePort === 443 || nodePort === 80)) {
             const msg = `Port conflict detected: Xray port ${nodePort} is already used by the panel (Nginx) on this server. ` +
                 `Use a different port (e.g. 8443) for the Xray node. ` +
@@ -911,7 +911,7 @@ async function setupXrayNode(node, options = {}) {
         logs.push('--- End config preview ---');
 
         // Open firewall ports
-        const mainPort = node.port || 8443;
+        const mainPort = node.port || 443;
         const apiPort = (node.xray || {}).apiPort || 61000;
         log(`Opening firewall ports (${mainPort}, api:${apiPort})...`);
         const firewallResult = await execSSH(conn, `
