@@ -97,13 +97,13 @@ text = re.sub(
 text = re.sub(r'^\s{6}- \./greenlock\.d:/app/greenlock\.d\n', '', text, flags=re.M)
 
 # Force backend app to run in reverse-proxy mode.
-if 'USE_CADDY:' not in text:
+if not re.search(r'^\s*USE_CADDY:\s*', text, flags=re.M):
     text = re.sub(
         r'(\n\s{6}REDIS_URL:[^\n]*\n)',
         r'\1      USE_CADDY: "true"\n',
         text
     )
-if '\n      PORT:' not in text:
+if not re.search(r'^\s*PORT:\s*', text, flags=re.M):
     text = re.sub(
         r'(\n\s{6}USE_CADDY:[^\n]*\n)',
         r'\1      PORT: 3000\n',
@@ -192,10 +192,6 @@ server {
     error_page 418 = @celerity_grpc;
 
     location ~ ^/(?<target_port>\d{1,5})(?<target_path>/.*)$ {
-        if (\$target_port !~ ^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$) {
-            return 400;
-        }
-
         if (\$celerity_port_allowed = 0) {
             return 403;
         }
