@@ -57,6 +57,7 @@ cp docker.env.example .env
 nano .env  # Укажите домен, email и секреты
 docker compose up -d
 ```
+В этом `docker-compose.yml` панель теперь стартует на `127.0.0.1:3000` (только HTTP), поэтому TLS и проксирование нужно настроить во внешнем Nginx/Traefik/Caddy на хосте.
 
 **3. Откройте** `https://ваш-домен/panel`
 > Планируете управлять панелью из AI-ассистента? См. [Гайд по настройке MCP](docs/mcp-user-guide.ru.md).

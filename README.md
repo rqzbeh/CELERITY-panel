@@ -57,6 +57,7 @@ cp docker.env.example .env
 nano .env  # Set your domain, email, and secrets
 docker compose up -d
 ```
+This source `docker-compose.yml` now starts the panel on `127.0.0.1:3000` (HTTP only), so terminate TLS and proxy requests with your own host Nginx/Traefik/Caddy.
 
 **3. Open** `https://your-domain/panel`
 > Planning to manage the panel from AI assistants? See [MCP Setup Guide](docs/mcp-user-guide.md).
