@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: clickdevtech/hysteria-panel
+  IMAGE_NAME: rqzbeh/celerity-panel
 
 permissions:
   contents: write
@@ -54,7 +54,7 @@ jobs:
             | `cc-agent-linux-amd64` | x86_64 (most VPS) |
             | `cc-agent-linux-arm64` | ARM64 |
 
-            > Panel source code is distributed via Docker Hub: `clickdevtech/hysteria-panel`
+            > Panel source code is distributed via Docker Hub: `rqzbeh/celerity-panel`
           files: |
             cc-agent/cc-agent-linux-amd64
             cc-agent/cc-agent-linux-arm64
@@ -96,4 +96,3 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-

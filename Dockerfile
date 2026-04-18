@@ -15,13 +15,12 @@ RUN npm install --omit=dev
 # Копируем исходники
 COPY . .
 
-# Создаём директории для логов, сертификатов и бэкапов
-RUN mkdir -p logs greenlock.d/live greenlock.d/accounts backups && \
-    chmod -R 755 greenlock.d backups
+# Создаём директории для логов и бэкапов
+RUN mkdir -p logs backups && \
+    chmod -R 755 backups
 
 # Порты
-EXPOSE 8444 80 443
+EXPOSE 3000 8444
 
 # Запуск
 CMD ["node", "index.js"]
-

@@ -140,7 +140,7 @@ router.post('/', requireScope('nodes:write'), async (req, res) => {
             type: nodeType,
             domain: domain || '',
             sni: sni || '',
-            port: port || 443,
+            port: port || 8443,
             portRange: portRange || '20000-50000',
             statsPort: statsPort || 9999,
             statsSecret,

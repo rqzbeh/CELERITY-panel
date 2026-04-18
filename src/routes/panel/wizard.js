@@ -194,7 +194,7 @@ router.get('/wizard/self-host', async (req, res) => {
         panelDomain: config.PANEL_DOMAIN || '',
         taskId: null,
         defaults: {
-            hyPort:      443,
+            hyPort:      8443,
             hyPortRange: '20000-50000',
             hyDomain:    config.PANEL_DOMAIN || '',
             xrayPort:    8443,

@@ -5,8 +5,8 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label for="port"><%= t('nodes.port') %></label>
-                        <input type="number" id="port" name="port" value="<%= node?.port || 443 %>"
-                               placeholder="443" oninput="checkXrayPortConflict()">
+                        <input type="number" id="port" name="port" value="<%= node?.port || 8443 %>"
+                               placeholder="8443" oninput="checkXrayPortConflict()">
                     </div>
                     <div class="form-group hysteria-only" id="portRangeGroup" style="<%= node?.type === 'xray' ? 'display:none' : '' %>">
                         <label for="portRange"><%= t('nodes.portRange') %></label>

@@ -284,7 +284,7 @@ router.post('/nodes', async (req, res) => {
             domain: req.body.domain || '',
             sni: req.body.sni || '',
             flag: req.body.flag || '',
-            port: parseInt(req.body.port) || 443,
+            port: parseInt(req.body.port) || 8443,
             portRange: req.body.portRange || '20000-50000',
             statsPort: parseInt(req.body.statsPort) || 9999,
             statsSecret,

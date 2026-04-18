@@ -48,7 +48,7 @@ services:
       MONGO_URI: mongodb://${MONGO_USER:-hysteria}:${MONGO_PASSWORD}@mongo:27017/hysteria?authSource=admin
       REDIS_URL: redis://redis:6379
       PORT: ${DOKPLOY_TRAEFIK_SERVICE_PORT:-3000}
-      USE_CADDY: "true"
+      USE_NGINX: "true"
     volumes:
       - app_logs:/app/logs
       - app_backups:/app/backups

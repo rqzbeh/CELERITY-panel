@@ -221,10 +221,12 @@ function getVlessPublicEndpoint(node, xray = {}) {
     const host = node.domain || node.ip;
     const backendPort = node.port || 443;
     const transport = xray.transport || 'tcp';
+    const security = xray.security || 'reality';
     const useNginxPathProxy = transport === 'ws' || transport === 'grpc' || transport === 'xhttp';
+    const publicPort = security === 'none' ? 80 : 443;
     return {
         host,
-        port: useNginxPathProxy ? 443 : backendPort,
+        port: useNginxPathProxy ? publicPort : backendPort,
         backendPort,
         useNginxPathProxy,
     };

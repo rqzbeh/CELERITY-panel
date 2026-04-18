@@ -14,7 +14,7 @@ const spec = {
         title: 'C³ CELERITY API',
         version,
         description: `
-Management API for [C³ CELERITY](https://github.com/ClickDevTech/hysteria-panel) — Hysteria 2 panel by Click Connect.
+Management API for [C³ CELERITY](https://github.com/rqzbeh/CELERITY-panel) fork.
 
 ## Authentication
 
@@ -44,12 +44,12 @@ Authorization: Bearer ck_your_key_here
 Admin sessions (cookie) bypass scope checks entirely.
         `.trim(),
         contact: {
-            name: 'Click Connect',
-            url: 'https://github.com/ClickDevTech/hysteria-panel',
+            name: 'CELERITY panel maintainers',
+            url: 'https://github.com/rqzbeh/CELERITY-panel',
         },
         license: {
             name: 'MIT',
-            url: 'https://github.com/ClickDevTech/hysteria-panel/blob/main/LICENSE',
+            url: 'https://github.com/rqzbeh/CELERITY-panel/blob/main/LICENSE',
         },
     },
 

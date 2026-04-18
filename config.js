@@ -27,7 +27,7 @@ module.exports = {
     API_DOCS_ENABLED: process.env.API_DOCS_ENABLED === 'true',
     DEFAULT_NODE_CONFIG: {
         portRange: '20000-50000',
-        mainPort: 443,
+        mainPort: 8443,
         statsPort: 9999,
     },
 };

@@ -40,7 +40,7 @@ services:
 
   # Hysteria Backend (pre-built image from Docker Hub)
   backend:
-    image: clickdevtech/hysteria-panel:latest
+    image: rqzbeh/celerity-panel:latest
     container_name: hysteria-backend
     restart: always
     depends_on:
@@ -49,17 +49,17 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
+      - "127.0.0.1:3000:3000/tcp"
     volumes:
       - ./logs:/app/logs
-      - ./greenlock.d:/app/greenlock.d
       - ./backups:/app/backups
     env_file:
       - .env
     environment:
       MONGO_URI: mongodb://${MONGO_USER:-hysteria}:${MONGO_PASSWORD}@mongo:27017/hysteria?authSource=admin
       REDIS_URL: redis://redis:6379
+      PORT: 3000
+      USE_NGINX: "true"
     networks:
       - hysteria-net
 
