@@ -247,7 +247,7 @@ async function manageNode(args, emit) {
                 type: nodeType,
                 domain: data.domain || '',
                 sni: data.sni || '',
-                port: data.port || 443,
+                port: data.port || 8443,
                 portRange: data.portRange || '20000-50000',
                 statsPort: 9999,
                 statsSecret,

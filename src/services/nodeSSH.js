@@ -228,7 +228,7 @@ class NodeSSH {
             }
             
             // Check 3: Verify the process is actually listening on the expected port
-            const port = this.node.port || 443;
+            const port = this.node.port || 8443;
             const portCheck = await this.exec(`ss -ulnp | grep -E ":${port}\\s" | head -1`);
             
             if (!portCheck.stdout.trim()) {
@@ -336,7 +336,7 @@ class NodeSSH {
      */
     async setupPortHopping(portRange) {
         try {
-            const mainPort = this.node.port || 443;
+            const mainPort = this.node.port || 8443;
             const [startPort, endPort] = portRange.split('-').map(Number);
             
             const script = `

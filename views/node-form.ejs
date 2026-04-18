@@ -159,7 +159,7 @@ Object.assign(locals, {
                     <div class="form-group">
                         <label for="customConfig"><%= t('nodes.customConfigLabel') %></label>
                         <textarea id="customConfig" name="customConfig" rows="20"
-                                  class="code-textarea" placeholder="listen: :443&#10;&#10;acme:&#10;  domains:&#10;    - example.com..."><%= node?.customConfig || '' %></textarea>
+                                  class="code-textarea" placeholder="listen: :8443&#10;&#10;acme:&#10;  domains:&#10;    - example.com..."><%= node?.customConfig || '' %></textarea>
                         <small><%= t('nodes.customConfigFormat') %></small>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:4px;">

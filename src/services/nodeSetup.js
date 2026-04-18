@@ -610,7 +610,7 @@ echo "Note: Make sure DNS for ${node.domain} points to this server's IP!"
                 log('Skipping port hopping for self-hosted node (incompatible with Docker networking)');
             } else {
                 log(`Setting up port hopping (${node.portRange})...`);
-                const portHoppingScript = getPortHoppingScript(node.portRange, node.port || 443);
+                const portHoppingScript = getPortHoppingScript(node.portRange, node.port || 8443);
                 if (portHoppingScript) {
                     const hopResult = await execSSH(conn, portHoppingScript);
                     logs.push(hopResult.output);
@@ -625,7 +625,7 @@ echo "Note: Make sure DNS for ${node.domain} points to this server's IP!"
         }
         
         const statsPort = node.statsPort || 9999;
-        const mainPort = node.port || 443;
+        const mainPort = node.port || 8443;
         log(`Opening firewall ports (${mainPort}, ${statsPort})...`);
         const firewallResult = await execSSH(conn, `
 echo "=== [5/6] Opening firewall ports ==="
@@ -819,7 +819,7 @@ async function setupXrayNode(node, options = {}) {
     if (!exitOnly) {
         // Detect port conflict: Xray on the same VPS as the panel reverse proxy using port 443/80
         const sameVps = isSameVpsAsPanel(node);
-        const nodePort = node.port || 443;
+        const nodePort = node.port || 8443;
         if (sameVps && (nodePort === 443 || nodePort === 80)) {
             const msg = `Port conflict detected: Xray port ${nodePort} is already used by the panel (Nginx) on this server. ` +
                 `Use a different port (e.g. 8443) for the Xray node. ` +
@@ -911,7 +911,7 @@ async function setupXrayNode(node, options = {}) {
         logs.push('--- End config preview ---');
 
         // Open firewall ports
-        const mainPort = node.port || 443;
+        const mainPort = node.port || 8443;
         const apiPort = (node.xray || {}).apiPort || 61000;
         log(`Opening firewall ports (${mainPort}, api:${apiPort})...`);
         const firewallResult = await execSSH(conn, `

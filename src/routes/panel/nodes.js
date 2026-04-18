@@ -399,7 +399,7 @@ router.post('/nodes/preview-config', async (req, res) => {
 
         const nodeData = {
             type: 'hysteria',
-            port: parseInt(req.body.port, 10) || 443,
+            port: parseInt(req.body.port, 10) || 8443,
             domain: (req.body.domain || '').trim(),
             sni: (req.body.sni || '').trim(),
             useTlsFiles: parseBool(req.body, 'useTlsFiles', false),
@@ -503,7 +503,7 @@ router.post('/nodes/:id', async (req, res) => {
             type: nodeType,
             domain: req.body.domain || '',
             sni: req.body.sni || '',
-            port: parseInt(req.body.port) || 443,
+            port: parseInt(req.body.port) || 8443,
             portRange: req.body.portRange || '20000-50000',
             statsPort: parseInt(req.body.statsPort) || 9999,
             groups,

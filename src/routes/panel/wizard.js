@@ -250,7 +250,7 @@ router.post('/wizard/self-host', wizardLimiter, async (req, res) => {
         const nodesToCreate = [];
 
         if (installHysteria) {
-            const hyPort      = parseInt(req.body['hy.port'])      || 443;
+            const hyPort      = parseInt(req.body['hy.port'])      || 8443;
             const hyDomain    = (req.body['hy.domain']    || config.PANEL_DOMAIN || '').trim();
 
             nodesToCreate.push({
