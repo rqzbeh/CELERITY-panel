@@ -610,7 +610,7 @@ echo "Note: Make sure DNS for ${node.domain} points to this server's IP!"
                 log('Skipping port hopping for self-hosted node (incompatible with Docker networking)');
             } else {
                 log(`Setting up port hopping (${node.portRange})...`);
-                const portHoppingScript = getPortHoppingScript(node.portRange, node.port || 443);
+                const portHoppingScript = getPortHoppingScript(node.portRange, node.port || 8443);
                 if (portHoppingScript) {
                     const hopResult = await execSSH(conn, portHoppingScript);
                     logs.push(hopResult.output);
@@ -625,7 +625,7 @@ echo "Note: Make sure DNS for ${node.domain} points to this server's IP!"
         }
         
         const statsPort = node.statsPort || 9999;
-        const mainPort = node.port || 443;
+        const mainPort = node.port || 8443;
         log(`Opening firewall ports (${mainPort}, ${statsPort})...`);
         const firewallResult = await execSSH(conn, `
 echo "=== [5/6] Opening firewall ports ==="

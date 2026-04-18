@@ -260,7 +260,7 @@ Tunnel-REALITY is configured **independently** from the client-facing REALITY on
               ▼                        ▼                        ▼
      ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
      │  Hysteria Node  │      │   Xray Node     │      │  Hysteria Node  │
-     │   :443 + hop    │      │  VLESS Reality  │      │   :443 + hop    │
+     │  :8443 + hop    │      │  VLESS Reality  │      │  :8443 + hop    │
      └────────┬────────┘      └────────┬────────┘      └────────┬────────┘
               │                        │                        │
               │    POST /api/auth      │   CC Agent API         │
@@ -410,7 +410,7 @@ Agent is installed automatically during Xray node auto-setup.
 ### Understanding Node Configuration
 
 #### Ports
-- **Main port (443)** — Port Hysteria listens on
+- **Main port (8443)** — Port Hysteria listens on
 - **Port hopping range (20000-50000)** — UDP ports for hopping
 - **Stats port (9999)** — Internal port for stats collection
 
@@ -449,7 +449,7 @@ Clients will automatically receive obfs params in subscription.
 
 ### Single VPS Setup (Panel + Node)
 
-You can run panel and node on the same VPS (panel TCP, node UDP on 443).
+You can run panel and node on the same VPS (panel TCP, node UDP on 8443).
 
 **Option 1: Use panel domain (recommended)**
 - Set node domain same as panel domain
@@ -665,7 +665,7 @@ const expected = 'sha256=' + crypto
 | `ip` | String | IP address |
 | `domain` | String | Domain for SNI/ACME |
 | `sni` | String | Custom SNI for masquerading |
-| `port` | Number | Main port (443) |
+| `port` | Number | Main port (8443) |
 | `portRange` | String | Port hopping range |
 | `portConfigs` | Array | Multi-port: `[{ name, port, portRange, enabled }]` |
 | `obfs` | Object | Obfuscation: `{ type: 'salamander', password }` |

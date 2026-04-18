@@ -207,10 +207,10 @@ function getNodeConfigs(node) {
             });
         });
     } else {
-        configs.push({ name: 'TLS', host, port: node.port || 443, portRange: '', hopInterval, sni, hasCert, obfs, obfsPassword });
+        configs.push({ name: 'TLS', host, port: node.port || 8443, portRange: '', hopInterval, sni, hasCert, obfs, obfsPassword });
         // Port 80 removed (used for ACME)
         if (node.portRange) {
-            configs.push({ name: 'Hopping', host, port: node.port || 443, portRange: node.portRange, hopInterval, sni, hasCert, obfs, obfsPassword });
+            configs.push({ name: 'Hopping', host, port: node.port || 8443, portRange: node.portRange, hopInterval, sni, hasCert, obfs, obfsPassword });
         }
     }
     

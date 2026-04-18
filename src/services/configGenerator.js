@@ -55,9 +55,10 @@ function parseHostPort(addr, defaultPort) {
  */
 function generateNodeConfig(node, authUrl, options = {}) {
     const { authInsecure = true, useTlsFiles = false } = options;
+    const listenPort = node.port || 8443;
     
     const config = {
-        listen: `:${node.port}`,
+        listen: `:${listenPort}`,
 
         auth: {
             type: 'http',

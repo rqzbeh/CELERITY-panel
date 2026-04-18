@@ -1,7 +1,7 @@
 # Шаблон конфига Hysteria 2 с HTTP авторизацией
 # 
 # Переменные:
-#   {{PORT}} - основной порт (443)
+#   {{PORT}} - основной порт (8443)
 #   {{AUTH_URL}} - URL для HTTP авторизации (https://your-backend.com/api/auth)
 #   {{CERT_PATH}} - путь к сертификату
 #   {{KEY_PATH}} - путь к ключу
@@ -60,7 +60,6 @@ acl:
 trafficStats:
   listen: 127.0.0.1:9999
   secret: {{STATS_SECRET}}
-
 
 
 
