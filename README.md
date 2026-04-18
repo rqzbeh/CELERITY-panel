@@ -61,6 +61,29 @@ This source `docker-compose.yml` now starts the panel on `127.0.0.1:3000` (HTTP 
 
 **3. Configure your host reverse proxy** to forward `https://your-domain` to `http://127.0.0.1:3000` (required for build-from-source Docker Compose installs).
 
+### Nginx installer for VLESS path routing (443 frontend)
+
+If you run Xray behind Nginx and want links to use path-based internal port routing (`/{port}/...`) on public `:443`, use:
+
+```bash
+sudo CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem \
+     KEY_PATH=/etc/letsencrypt/live/example.com/privkey.pem \
+     ALLOWED_PORTS=443,8443,2053 \
+     bash /home/runner/work/CELERITY-panel/CELERITY-panel/scripts/install-nginx-vless-path-proxy.sh
+```
+
+What it configures:
+- Installs Nginx (if missing)
+- Creates `/etc/nginx/conf.d/celerity-vless-path-proxy.conf`
+- Accepts any domain/IP host header (`server_name _`) for CDN compatibility
+- Routes `/{internalPort}/anytext` to `127.0.0.1:{internalPort}` after stripping `/{internalPort}`
+- Handles VLESS over `ws`, `grpc`, and `xhttp` through TLS `:443`
+
+Security notes:
+- By default only ports in `ALLOWED_PORTS` are routable.
+- To allow all internal ports (not recommended), set `ALLOW_ALL_PORTS=1`.
+- Do **not** include panel/admin/internal service ports unless you intentionally want them exposed.
+
 **4. Open** `https://your-domain/panel`
 > Planning to manage the panel from AI assistants? See [MCP Setup Guide](docs/mcp-user-guide.md).
 
