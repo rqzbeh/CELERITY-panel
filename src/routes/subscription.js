@@ -231,7 +231,7 @@ function getVlessPublicEndpoint(node, xray = {}) {
 }
 
 function buildPortPrefixedPath(backendPort, rawPath = '/') {
-    const basePath = (rawPath || '/').trim() || '/';
+    const basePath = (rawPath || '/').trim();
     const normalizedPath = basePath.startsWith('/') ? basePath : `/${basePath}`;
     const portPrefix = `/${backendPort}`;
     if (normalizedPath === portPrefix || normalizedPath.startsWith(`${portPrefix}/`)) {
@@ -241,7 +241,7 @@ function buildPortPrefixedPath(backendPort, rawPath = '/') {
 }
 
 function buildPortPrefixedGrpcService(backendPort, rawServiceName = 'grpc') {
-    const baseService = (rawServiceName || 'grpc').trim() || 'grpc';
+    const baseService = (rawServiceName || 'grpc').trim();
     const normalizedService = baseService.startsWith('/') ? baseService : `/${baseService}`;
     const portPrefix = `/${backendPort}`;
     if (normalizedService === portPrefix || normalizedService.startsWith(`${portPrefix}/`)) {
