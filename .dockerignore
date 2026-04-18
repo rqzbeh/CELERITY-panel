@@ -7,12 +7,9 @@ npm-debug.log
 !.env.docker
 logs/*
 !logs/.gitkeep
-greenlock.d/*
-!greenlock.d/config.json
 *.md
 .vscode
 .idea
-
 
 
 

@@ -5,15 +5,13 @@
 **[English](README.md)** | [Русский](README.ru.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docker Pulls](https://img.shields.io/docker/pulls/clickdevtech/hysteria-panel)](https://hub.docker.com/r/clickdevtech/hysteria-panel)
-[![Docker Image Size](https://img.shields.io/docker/image-size/clickdevtech/hysteria-panel/latest)](https://hub.docker.com/r/clickdevtech/hysteria-panel)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](package.json)
 [![Hysteria](https://img.shields.io/badge/Hysteria-2.x-9B59B6)](https://v2.hysteria.network/)
 [![Xray](https://img.shields.io/badge/Xray-VLESS-00ADD8)](https://xtls.github.io/)
 [![Telegram](https://img.shields.io/badge/Telegram-Chat-2CA5E0?logo=telegram&logoColor=white)](https://t.me/+JKFdEr7TqvIyOTFi)
 [![Support](https://img.shields.io/badge/%E2%99%A5-Support-EC4899)](https://celerity.help)
 
-**C³ CELERITY** by Click Connect — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/) and [Xray VLESS](https://xtls.github.io/) proxy servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
+**C³ CELERITY (rqzbeh fork)** — modern web panel for managing [Hysteria 2](https://v2.hysteria.network/) and [Xray VLESS](https://xtls.github.io/) proxy servers with centralized authentication, one-click node setup, and flexible user-to-server group mapping.
 
 **Built for performance:** Lightweight architecture designed for speed at any scale.
 
@@ -37,12 +35,8 @@ curl -fsSL https://get.docker.com | sh
 mkdir hysteria-panel && cd hysteria-panel
 
 # Download required files
-curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker-compose.hub.yml
-curl -O https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/docker.env.example
-
-# Create Greenlock SSL config (required for HTTPS)
-mkdir -p greenlock.d
-curl -o greenlock.d/config.json https://raw.githubusercontent.com/ClickDevTech/hysteria-panel/main/greenlock.d/config.json
+curl -O https://raw.githubusercontent.com/rqzbeh/CELERITY-panel/main/docker-compose.hub.yml
+curl -O https://raw.githubusercontent.com/rqzbeh/CELERITY-panel/main/docker.env.example
 
 cp docker.env.example .env
 nano .env  # Set your domain, email, and secrets
@@ -51,19 +45,19 @@ docker compose -f docker-compose.hub.yml up -d
 
 **Alternative: Build from source** (for development or customization)
 ```bash
-git clone https://github.com/ClickDevTech/hysteria-panel.git
-cd hysteria-panel
+git clone https://github.com/rqzbeh/CELERITY-panel.git
+cd CELERITY-panel
 cp docker.env.example .env
 nano .env  # Set your domain, email, and secrets
 docker compose up -d
 ```
-This source `docker-compose.yml` now starts the panel on `127.0.0.1:3000` (HTTP only). You must terminate TLS and proxy requests with your own host Nginx/Traefik/Caddy before the panel is accessible over HTTPS.
+This fork is **nginx-first** and runs the panel on `127.0.0.1:3000` (HTTP only). TLS termination is expected on host Nginx.
 
-**3. Configure your host reverse proxy** to forward `https://your-domain` to `http://127.0.0.1:3000` (required for build-from-source Docker Compose installs).
+**3. Configure host Nginx** to forward `https://your-domain` to `http://127.0.0.1:3000`.
 
-### Nginx installer for VLESS path routing (443 frontend)
+### Nginx installer for VLESS path routing (443 TLS + 80 non-TLS)
 
-If you run Xray behind Nginx and want links to use path-based internal port routing (`/{port}/...`) on public `:443`, use:
+If you run Xray behind Nginx and want links to use path-based internal port routing (`/{port}/...`) on public `:443` (TLS) and `:80` (non-TLS), use:
 
 ```bash
 sudo CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem \
@@ -79,11 +73,10 @@ What it configures:
 - Creates `/etc/nginx/conf.d/celerity-vless-path-proxy.conf`
 - Accepts any domain/IP host header (`server_name _`) for CDN compatibility
 - Routes `/{internalPort}/anytext` to `127.0.0.1:{internalPort}` after stripping `/{internalPort}`
-- Handles VLESS over `ws`, `grpc`, and `xhttp` through TLS `:443`
+- Handles VLESS over `ws`, `grpc`, `xhttp`, and HTTP upgrade through TLS `:443` and non-TLS `:80`
 - Auto-fixes project compatibility (`AUTO_FIX_PROJECT=1`, default):
-  - sets `.env` to `USE_CADDY=true` and `PORT=3000`
+  - sets `.env` to `USE_NGINX=true` and `PORT=3000`
   - patches `docker-compose.hub.yml` to use `127.0.0.1:3000:3000` instead of host `80/443`
-  - removes `greenlock.d` volume from `docker-compose.hub.yml` so host nginx is the only TLS terminator
 
 Security notes:
 - By default only ports in `ALLOWED_PORTS` are routable.
@@ -91,6 +84,11 @@ Security notes:
 - If your nginx already has a default TLS vhost, set `REMOVE_DEFAULT_SITE=1` only when you explicitly want this installer to replace it.
 - This config intentionally accepts any Host header (`server_name _`) for CDN flexibility; if you do not need that, restrict allowed hosts in nginx and at the application layer.
 - Do **not** include panel/admin/internal service ports unless you intentionally want them exposed.
+
+Fork routing policy:
+- Hysteria default listener: `8443/udp`
+- VLESS public endpoint: `443` for TLS (`security=tls|reality`) and `80` for non-TLS (`security=none`)
+- For `ws`/`grpc`/`xhttp`, subscriptions use `/{internalXrayPort}/...` path prefixes for Nginx routing
 
 **4. Open** `https://your-domain/panel`
 > Planning to manage the panel from AI assistants? See [MCP Setup Guide](docs/mcp-user-guide.md).
@@ -132,8 +130,8 @@ If you want stable deploys from Docker Hub tags (without building), replace `bac
 
 ```yaml
 backend:
-  image: clickdevtech/hysteria-panel:latest
-  # or pin a release tag, e.g. clickdevtech/hysteria-panel:v1.2.3
+  image: rqzbeh/celerity-panel:latest
+  # or pin a release tag, e.g. rqzbeh/celerity-panel:v1.2.3
   restart: always
   depends_on:
     mongo:
@@ -862,16 +860,14 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
 
   backend:
-    image: clickdevtech/hysteria-panel:latest
+    image: rqzbeh/celerity-panel:latest
     restart: always
     depends_on:
       - mongo
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./logs:/app/logs
-      - ./greenlock.d:/app/greenlock.d
       - ./backups:/app/backups
     env_file:
       - .env
@@ -889,7 +885,7 @@ volumes:
 | `PANEL_DOMAIN` | ✅ | Panel domain |
 | `DOKPLOY_PANEL_HOST` | ❌ | Traefik host for Dokploy (`Host(...)` rule) |
 | `DOKPLOY_TRAEFIK_SERVICE_PORT` | ❌ | Traefik/backend service port in Dokploy (default: `3000`) |
-| `ACME_EMAIL` | ✅ | Let's Encrypt email |
+| `ACME_EMAIL` | ✅ | Let's Encrypt email (used for Hysteria ACME mode) |
 | `ENCRYPTION_KEY` | ✅ | SSH encryption key (32 chars) |
 | `SESSION_SECRET` | ✅ | Session secret |
 | `MONGO_PASSWORD` | ✅ | MongoDB password (for Docker) |
@@ -898,6 +894,8 @@ volumes:
 | `REDIS_URL` | ❌ | Redis URL for cache (default: in-memory) |
 | `PANEL_IP_WHITELIST` | ❌ | IP whitelist for panel |
 | `SYNC_INTERVAL` | ❌ | Sync interval in minutes (default: 2) |
+| `USE_NGINX` | ❌ | Nginx-first mode flag (recommended: `true`) |
+| `PORT` | ❌ | Internal panel HTTP port behind Nginx (default: `3000`) |
 | `API_DOCS_ENABLED` | ❌ | Enable interactive API docs at `/api/docs` |
 | `LOG_LEVEL` | ❌ | Logging level (default: info) |
 

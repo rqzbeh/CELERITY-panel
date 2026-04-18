@@ -457,7 +457,7 @@
                 <label><%= typeof t !== 'undefined' ? t('nodes.domain') : 'Domain' %></label>
                 <input type="text" name="hy.domain" value="<%= defaults.hyDomain %>" placeholder="panel.example.com">
                 <small style="color:var(--text-secondary);">
-                    <%= typeof t !== 'undefined' ? t('wizard.hyDomainHint') : 'Uses the panel domain. Hysteria shares the panel TLS certificate.' %>
+                    <%= typeof t !== 'undefined' ? t('wizard.hyDomainHint') : 'Use a domain that resolves to this server. For nginx-first setups, Hysteria should typically run on UDP 8443.' %>
                 </small>
             </div>
         </div>
@@ -472,7 +472,7 @@
                 <input type="number" name="xray.port" value="<%= defaults.xrayPort %>" min="1" max="65535">
                 <small>
                     <i class="ti ti-alert-triangle" style="color:var(--warning);"></i>
-                    <%= typeof t !== 'undefined' ? t('wizard.xrayPortHint') : 'Port 443/tcp is used by the panel (Caddy). Xray defaults to 8443.' %>
+                    <%= typeof t !== 'undefined' ? t('wizard.xrayPortHint') : 'Ports 443/80 are handled by Nginx. Xray should listen on an internal port such as 8443.' %>
                 </small>
             </div>
             <div class="wizard-grid" style="margin-bottom:16px;">

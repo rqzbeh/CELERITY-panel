@@ -1,7 +1,7 @@
 {
   "name": "c3-celerity",
   "version": "1.0.0",
-  "description": "C³ CELERITY - Management panel for Hysteria 2 nodes by Click Connect",
+  "description": "CELERITY Panel fork for managing Hysteria 2 and Xray VLESS nodes with nginx-first deployment",
   "keywords": [
     "nodejs",
     "docker",
@@ -15,13 +15,13 @@
     "hysteria2",
     "proxy-panel"
   ],
-  "homepage": "https://github.com/ClickDevTech/hysteria-panel",
+  "homepage": "https://github.com/rqzbeh/CELERITY-panel",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ClickDevTech/hysteria-panel.git"
+    "url": "git+https://github.com/rqzbeh/CELERITY-panel.git"
   },
   "bugs": {
-    "url": "https://github.com/ClickDevTech/hysteria-panel/issues"
+    "url": "https://github.com/rqzbeh/CELERITY-panel/issues"
   },
   "author": "Click Connect",
   "license": "MIT",
@@ -35,7 +35,6 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.500.0",
-    "@root/greenlock-express": "^4.0.3",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.4",
@@ -49,8 +48,6 @@
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "express-session": "^1.17.3",
-    "greenlock-manager-fs": "^3.0.1",
-    "greenlock-store-fs": "^3.2.2",
     "helmet": "^7.1.0",
     "ioredis": "^5.3.2",
     "mongoose": "^8.0.0",

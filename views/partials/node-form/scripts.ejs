@@ -422,7 +422,7 @@ function checkXrayPortConflict() {
     if (!warn) return;
     const proto = document.querySelector('input[name="type"]:checked')?.value || 'hysteria';
     const ip = (document.getElementById('ip')?.value || '').trim().toLowerCase();
-    const port = parseInt(document.getElementById('port')?.value || '443', 10);
+    const port = parseInt(document.getElementById('port')?.value || '8443', 10);
     const panelHostname = PANEL_DOMAIN.split(':')[0].toLowerCase();
     const isSameServer = ip === 'localhost' || ip === '127.0.0.1' || ip === '::1' || ip === panelHostname;
     const isConflictPort = port === 443 || port === 80;

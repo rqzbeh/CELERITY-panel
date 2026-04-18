@@ -160,7 +160,7 @@ const hyNodeSchema = new mongoose.Schema({
     ip: { type: String, required: true },
     domain: { type: String, default: '' },
     sni: { type: String, default: '' },
-    port: { type: Number, default: 443 },
+    port: { type: Number, default: 8443 },
     portRange: { type: String, default: '20000-50000' },
     hopInterval: { type: String, default: '' },
     portConfigs: { type: [portConfigSchema], default: [] },

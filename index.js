@@ -12,7 +12,6 @@ const cron = require('node-cron');
 const session = require('express-session');
 const RedisStore = require('connect-redis').default;
 const path = require('path');
-const fs = require('fs');
 const { WebSocketServer } = require('ws');
 
 const config = require('./config');
@@ -512,77 +511,16 @@ async function startServer() {
         await reloadSettings();
         
         const PORT = process.env.PORT || 3000;
-        const useCaddy = process.env.USE_CADDY === 'true';
+        const http = require('http');
+        const server = http.createServer(app);
         
-        if (useCaddy) {
-            const http = require('http');
-            const server = http.createServer(app);
-            
-            setupWebSocketServer(server);
-            activeServers.push(server);
-            
-            server.listen(PORT, () => {
-                logger.info(`[Server] HTTP listening on port ${PORT} (behind Caddy)`);
-                logger.info(`[Server] Panel: https://${config.PANEL_DOMAIN}/panel`);
-            });
-        } else {
-            // Standalone with Greenlock (for local development)
-        logger.info(`[Server] Starting HTTPS for ${config.PANEL_DOMAIN}`);
+        setupWebSocketServer(server);
+        activeServers.push(server);
         
-        const Greenlock = require('@root/greenlock-express');
-            const greenlockDir = path.join(__dirname, 'greenlock.d');
-            
-            const livePath = path.join(greenlockDir, 'live', config.PANEL_DOMAIN);
-            if (!fs.existsSync(livePath)) {
-                fs.mkdirSync(livePath, { recursive: true });
-            }
-            
-            const configPath = path.join(greenlockDir, 'config.json');
-        try {
-            const glConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            const siteExists = glConfig.sites.some(s => s.subject === config.PANEL_DOMAIN);
-            
-            if (!siteExists) {
-                glConfig.sites.push({
-                    subject: config.PANEL_DOMAIN,
-                    altnames: [config.PANEL_DOMAIN],
-                });
-            }
-            glConfig.defaults.subscriberEmail = config.ACME_EMAIL;
-                glConfig.defaults.store = {
-                    module: 'greenlock-store-fs',
-                    basePath: greenlockDir,
-                };
-            fs.writeFileSync(configPath, JSON.stringify(glConfig, null, 2));
-        } catch (err) {
-                logger.warn(`[Greenlock] Config error: ${err.message}`);
-        }
-        
-            const glInstance = Greenlock.init({
-            packageRoot: __dirname,
-                configDir: greenlockDir,
-            maintainerEmail: config.ACME_EMAIL,
-            cluster: false,
-                staging: false,
-            });
-            
-            glInstance.ready((glx) => {
-            const httpServer = glx.httpServer();
-            activeServers.push(httpServer);
-            httpServer.listen(80, () => {
-                    logger.info('[Server] HTTP listening on port 80');
-            });
-            
-            const httpsServer = glx.httpsServer(null, app);
-            setupWebSocketServer(httpsServer);
-            activeServers.push(httpsServer);
-            
-            httpsServer.listen(443, () => {
-                logger.info('[Server] HTTPS listening on port 443');
-                logger.info(`[Server] Panel: https://${config.PANEL_DOMAIN}/panel`);
-            });
+        server.listen(PORT, () => {
+            logger.info(`[Server] HTTP listening on port ${PORT} (behind Nginx)`);
+            logger.info(`[Server] Panel: https://${config.PANEL_DOMAIN}/panel`);
         });
-        }
         
             // Cron jobs
         setupCronJobs();

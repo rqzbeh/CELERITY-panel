@@ -49,50 +49,35 @@ function isSameVpsAsPanel(node) {
 }
 
 /**
- * Read panel's SSL certificates from Greenlock or Caddy directory
+ * Read panel's SSL certificates from common Nginx-hosted locations
  * @param {string} domain - Panel domain
  * @returns {Object|null} { cert, key } or null if not found
  */
 function getPanelCertificates(domain) {
     try {
-        let cert, key;
-        
-        // Try Caddy certificates first (when USE_CADDY=true)
-        // Caddy stores certs in /caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/{domain}/
-        const caddyDir = path.join('/caddy_data/caddy/certificates/acme-v02.api.letsencrypt.org-directory', domain);
-        const caddyCertPath = path.join(caddyDir, `${domain}.crt`);
-        const caddyKeyPath = path.join(caddyDir, `${domain}.key`);
-        
-        if (fs.existsSync(caddyCertPath) && fs.existsSync(caddyKeyPath)) {
-            cert = fs.readFileSync(caddyCertPath, 'utf8');
-            key = fs.readFileSync(caddyKeyPath, 'utf8');
-            logger.info(`[NodeSetup] Found Caddy certificates for ${domain}`);
-            return { cert, key };
+        const certCandidates = [
+            {
+                cert: path.join('/etc/letsencrypt/live', domain, 'fullchain.pem'),
+                key: path.join('/etc/letsencrypt/live', domain, 'privkey.pem'),
+                source: 'LetsEncrypt',
+            },
+            {
+                cert: path.join('/etc/nginx/ssl', `${domain}.crt`),
+                key: path.join('/etc/nginx/ssl', `${domain}.key`),
+                source: 'Nginx SSL directory',
+            },
+        ];
+
+        for (const candidate of certCandidates) {
+            if (fs.existsSync(candidate.cert) && fs.existsSync(candidate.key)) {
+                const cert = fs.readFileSync(candidate.cert, 'utf8');
+                const key = fs.readFileSync(candidate.key, 'utf8');
+                logger.info(`[NodeSetup] Found ${candidate.source} certificates for ${domain}`);
+                return { cert, key };
+            }
         }
-        
-        // Try Greenlock certificates (when USE_CADDY is not set)
-        // Greenlock stores certs in greenlock.d/live/{domain}/
-        const greenlockDir = path.join(__dirname, '../../greenlock.d/live', domain);
-        const certPath = path.join(greenlockDir, 'cert.pem');
-        const keyPath = path.join(greenlockDir, 'privkey.pem');
-        const fullchainPath = path.join(greenlockDir, 'fullchain.pem');
-        
-        if (fs.existsSync(certPath)) {
-            cert = fs.readFileSync(certPath, 'utf8');
-        } else if (fs.existsSync(fullchainPath)) {
-            cert = fs.readFileSync(fullchainPath, 'utf8');
-        }
-        
-        if (fs.existsSync(keyPath)) {
-            key = fs.readFileSync(keyPath, 'utf8');
-        }
-        
-        if (cert && key) {
-            logger.info(`[NodeSetup] Found Greenlock certificates for ${domain}`);
-            return { cert, key };
-        }
-        
-        logger.warn(`[NodeSetup] Panel certificates not found (checked Caddy: ${caddyDir}, Greenlock: ${greenlockDir})`);
+
+        logger.warn(`[NodeSetup] Panel certificates not found for ${domain} in known Nginx certificate paths`);
         return null;
         
     } catch (error) {
@@ -832,11 +817,11 @@ async function setupXrayNode(node, options = {}) {
     log(`Starting Xray setup for ${node.name} (${node.ip})${exitOnly ? ' [exit/bridge mode]' : ''}`);
 
     if (!exitOnly) {
-        // Detect port conflict: Xray on the same VPS as the panel (Caddy) using port 443/80
+        // Detect port conflict: Xray on the same VPS as the panel reverse proxy using port 443/80
         const sameVps = isSameVpsAsPanel(node);
         const nodePort = node.port || 443;
         if (sameVps && (nodePort === 443 || nodePort === 80)) {
-            const msg = `Port conflict detected: Xray port ${nodePort} is already used by the panel (Caddy) on this server. ` +
+            const msg = `Port conflict detected: Xray port ${nodePort} is already used by the panel (Nginx) on this server. ` +
                 `Use a different port (e.g. 8443) for the Xray node. ` +
                 `After changing the port, save the node and run Auto Setup again.`;
             log(`ERROR: ${msg}`);
@@ -1163,7 +1148,7 @@ if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
 else
     BIN="cc-agent-linux-amd64"
 fi
-URL="https://github.com/ClickDevTech/CELERITY-panel/releases/latest/download/$BIN"
+URL="https://github.com/rqzbeh/CELERITY-panel/releases/latest/download/$BIN"
 echo "Downloading $URL ..."
 curl -fsSL --max-time 120 "$URL" -o /usr/local/bin/cc-agent
 if [ ! -s /usr/local/bin/cc-agent ]; then
