@@ -1687,55 +1687,78 @@ html {
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    background: linear-gradient(135deg, var(--bg-primary) 0%, #18181b 50%, var(--bg-secondary) 100%);
+    padding: 32px 16px 48px;
+    background:
+        radial-gradient(circle at top, rgba(99, 102, 241, 0.16) 0%, transparent 32%),
+        linear-gradient(135deg, #09090b 0%, #0f1020 48%, #111113 100%);
     position: relative;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.login-page::before,
+.login-page::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
 }
 
 .login-page::before {
-    content: '';
-    position: absolute;
-    width: 500px;
-    height: 500px;
-    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
-    top: -250px;
-    right: -250px;
-    animation: float 20s infinite alternate;
+    inset: -35vmax;
+    background: conic-gradient(
+        from 0deg,
+        rgba(99, 102, 241, 0.18),
+        rgba(168, 85, 247, 0.14),
+        rgba(14, 165, 233, 0.12),
+        rgba(99, 102, 241, 0.18)
+    );
+    filter: blur(96px);
+    opacity: 0.9;
+    transform-origin: center;
+    animation: onboardingRotate 42s linear infinite;
 }
 
 .login-page::after {
-    content: '';
-    position: absolute;
-    width: 400px;
-    height: 400px;
-    background: radial-gradient(circle, rgba(124, 58, 237, 0.2) 0%, transparent 70%);
-    bottom: -200px;
-    left: -200px;
-    animation: float 15s infinite alternate-reverse;
-}
-
-@keyframes float {
-    to {
-        transform: translate(50px, 50px) scale(1.1);
-    }
+    background:
+        radial-gradient(circle at 18% 18%, rgba(99, 102, 241, 0.18), transparent 26%),
+        radial-gradient(circle at 82% 16%, rgba(168, 85, 247, 0.16), transparent 28%),
+        radial-gradient(circle at 50% 82%, rgba(56, 189, 248, 0.12), transparent 24%);
+    animation: onboardingFloat 18s ease-in-out infinite alternate;
 }
 
 .login-container {
     width: 100%;
-    max-width: 420px;
+    max-width: 440px;
     padding: 20px;
     position: relative;
     z-index: 1;
 }
 
 .login-box {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 48px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    position: relative;
+    background: rgba(17, 17, 19, 0.86);
+    border: 1px solid rgba(63, 63, 70, 0.78);
+    border-radius: 24px;
+    padding: clamp(28px, 4vw, 48px);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(20px);
+    overflow: hidden;
     animation: slideUp 0.5s ease-out;
+}
+
+.login-box::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 28%);
+    pointer-events: none;
+}
+
+.login-box > * {
+    position: relative;
+    z-index: 1;
 }
 
 @keyframes slideUp {
@@ -1853,30 +1876,38 @@ html {
 /* Login Language Switcher */
 .login-lang-switcher {
     display: flex;
-    justify-content: center;
+    align-items: center;
     gap: 8px;
-    margin-bottom: 20px;
+    padding: 6px;
+    margin: 0 auto 24px;
+    width: fit-content;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 999px;
 }
 
 .login-lang-switcher .lang-btn {
-    padding: 6px 16px;
+    min-width: 48px;
+    padding: 7px 14px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-secondary);
     text-decoration: none;
-    border-radius: var(--radius-xs);
-    background: var(--bg-tertiary);
-    transition: var(--transition);
+    border-radius: 999px;
+    background: transparent;
+    text-align: center;
+    transition: all 0.2s ease;
 }
 
 .login-lang-switcher .lang-btn:hover {
     color: var(--text-primary);
-    background: var(--bg-hover);
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .login-lang-switcher .lang-btn.active {
-    color: var(--text-primary);
-    background: var(--accent);
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-gradient-end) 100%);
+    box-shadow: 0 10px 24px rgba(99, 102, 241, 0.25);
 }
 
 /* Lockout Alert */
