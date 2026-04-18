@@ -115,6 +115,10 @@ server {
     error_page 418 = @celerity_grpc;
 
     location ~ ^/(?<target_port>\d{1,5})(?<target_path>/.*)$ {
+        if (\$target_port !~ ^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$) {
+            return 400;
+        }
+
         if (\$celerity_port_allowed = 0) {
             return 403;
         }
