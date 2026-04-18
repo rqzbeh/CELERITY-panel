@@ -69,7 +69,7 @@ If you run Xray behind Nginx and want links to use path-based internal port rout
 sudo CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem \
      KEY_PATH=/etc/letsencrypt/live/example.com/privkey.pem \
      ALLOWED_PORTS=443,8443,2053 \
-     bash /home/runner/work/CELERITY-panel/CELERITY-panel/scripts/install-nginx-vless-path-proxy.sh
+     bash ./scripts/install-nginx-vless-path-proxy.sh
 ```
 
 What it configures:

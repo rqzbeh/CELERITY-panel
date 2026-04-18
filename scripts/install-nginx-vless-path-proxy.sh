@@ -57,7 +57,7 @@ build_ports_map() {
     local p
     p="$(echo "${raw}" | xargs)"
     [[ -z "${p}" ]] && continue
-    if [[ ! "${p}" =~ ^[0-9]{1,5}$ ]] || (( p < 1 || p > 65535 )); then
+    if [[ ! "${p}" =~ ^[1-9][0-9]{0,4}$ ]] || (( p < 1 || p > 65535 )); then
       echo "Invalid port in ALLOWED_PORTS: ${p}" >&2
       exit 1
     fi
