@@ -217,6 +217,39 @@ function getNodeConfigs(node) {
     return configs;
 }
 
+function getVlessPublicEndpoint(node, xray = {}) {
+    const host = node.domain || node.ip;
+    const backendPort = node.port || 443;
+    const transport = xray.transport || 'tcp';
+    const useNginxPathProxy = transport === 'ws' || transport === 'grpc' || transport === 'xhttp';
+    return {
+        host,
+        port: useNginxPathProxy ? 443 : backendPort,
+        backendPort,
+        useNginxPathProxy,
+    };
+}
+
+function buildPortPrefixedPath(backendPort, rawPath = '/') {
+    const basePath = rawPath.trim();
+    const normalizedPath = basePath.startsWith('/') ? basePath : `/${basePath}`;
+    const portPrefix = `/${backendPort}`;
+    if (normalizedPath === portPrefix || normalizedPath.startsWith(`${portPrefix}/`)) {
+        return normalizedPath;
+    }
+    return normalizedPath === '/' ? `${portPrefix}/` : `${portPrefix}${normalizedPath}`;
+}
+
+function buildPortPrefixedGrpcService(backendPort, rawServiceName = 'grpc') {
+    const baseService = rawServiceName.trim();
+    const normalizedService = baseService.startsWith('/') ? baseService : `/${baseService}`;
+    const portPrefix = `/${backendPort}`;
+    if (normalizedService === portPrefix || normalizedService.startsWith(`${portPrefix}/`)) {
+        return normalizedService;
+    }
+    return `${portPrefix}${normalizedService}`;
+}
+
 
 // ==================== URI GENERATION ====================
 
@@ -254,8 +287,7 @@ function generateVlessURI(user, node) {
     if (!uuid) return null;
 
     const xray = node.xray || {};
-    const host = node.domain || node.ip;
-    const port = node.port || 443;
+    const { host, port, backendPort, useNginxPathProxy } = getVlessPublicEndpoint(node, xray);
     const transport = xray.transport || 'tcp';
     const security = xray.security || 'reality';
     const fingerprint = xray.fingerprint || 'chrome';
@@ -288,13 +320,18 @@ function generateVlessURI(user, node) {
     }
 
     if (transport === 'ws') {
-        params.set('path', xray.wsPath || '/');
+        const wsPath = useNginxPathProxy ? buildPortPrefixedPath(backendPort, xray.wsPath || '/') : (xray.wsPath || '/');
+        params.set('path', wsPath);
         if (xray.wsHost) params.set('host', xray.wsHost);
     } else if (transport === 'grpc') {
-        params.set('serviceName', xray.grpcServiceName || 'grpc');
+        const grpcServiceName = useNginxPathProxy
+            ? buildPortPrefixedGrpcService(backendPort, xray.grpcServiceName || 'grpc')
+            : (xray.grpcServiceName || 'grpc');
+        params.set('serviceName', grpcServiceName);
         params.set('mode', 'gun');
     } else if (transport === 'xhttp') {
-        params.set('path', xray.xhttpPath || '/');
+        const xhttpPath = useNginxPathProxy ? buildPortPrefixedPath(backendPort, xray.xhttpPath || '/') : (xray.xhttpPath || '/');
+        params.set('path', xhttpPath);
         if (xray.xhttpHost) params.set('host', xray.xhttpHost);
         if (xray.xhttpMode && xray.xhttpMode !== 'auto') params.set('mode', xray.xhttpMode);
     }
@@ -648,7 +685,7 @@ function generateURIList(user, nodes) {
 
 function _buildClashVlessProxy(user, node) {
     const xray = node.xray || {};
-    const host = node.domain || node.ip;
+    const { host, port, backendPort, useNginxPathProxy } = getVlessPublicEndpoint(node, xray);
     const transport = xray.transport || 'tcp';
     const security = xray.security || 'reality';
     const fingerprint = xray.fingerprint || 'chrome';
@@ -662,7 +699,7 @@ function _buildClashVlessProxy(user, node) {
     let proxy = `  - name: "${name}"
     type: vless
     server: ${host}
-    port: ${node.port || 443}
+    port: ${port}
     uuid: "${user.xrayUuid}"
     udp: true`;
 
@@ -692,14 +729,18 @@ function _buildClashVlessProxy(user, node) {
     }
 
     if (transport === 'ws') {
+        const wsPath = useNginxPathProxy ? buildPortPrefixedPath(backendPort, xray.wsPath || '/') : (xray.wsPath || '/');
         proxy += `
     ws-opts:
-      path: "${xray.wsPath || '/'}"`;
+      path: "${wsPath}"`;
         if (xray.wsHost) proxy += `\n      headers:\n        Host: "${xray.wsHost}"`;
     } else if (transport === 'grpc') {
+        const grpcServiceName = useNginxPathProxy
+            ? buildPortPrefixedGrpcService(backendPort, xray.grpcServiceName || 'grpc')
+            : (xray.grpcServiceName || 'grpc');
         proxy += `
     grpc-opts:
-      grpc-service-name: "${xray.grpcServiceName || 'grpc'}"`;
+      grpc-service-name: "${grpcServiceName}"`;
     }
 
     return { name, proxy };
@@ -772,7 +813,7 @@ function generateClashYAML(user, nodes, routing) {
 
 function _buildSingboxVlessOutbound(user, node) {
     const xray = node.xray || {};
-    const host = node.domain || node.ip;
+    const { host, port, backendPort, useNginxPathProxy } = getVlessPublicEndpoint(node, xray);
     const transport = xray.transport || 'tcp';
     const security = xray.security || 'reality';
     const fingerprint = xray.fingerprint || 'chrome';
@@ -787,7 +828,7 @@ function _buildSingboxVlessOutbound(user, node) {
         type: 'vless',
         tag,
         server: host,
-        server_port: node.port || 443,
+        server_port: port,
         uuid: user.xrayUuid,
     };
 
@@ -819,15 +860,19 @@ function _buildSingboxVlessOutbound(user, node) {
     }
 
     if (transport === 'ws') {
+        const wsPath = useNginxPathProxy ? buildPortPrefixedPath(backendPort, xray.wsPath || '/') : (xray.wsPath || '/');
         outbound.transport = {
             type: 'ws',
-            path: xray.wsPath || '/',
+            path: wsPath,
             headers: xray.wsHost ? { Host: xray.wsHost } : {},
         };
     } else if (transport === 'grpc') {
+        const grpcServiceName = useNginxPathProxy
+            ? buildPortPrefixedGrpcService(backendPort, xray.grpcServiceName || 'grpc')
+            : (xray.grpcServiceName || 'grpc');
         outbound.transport = {
             type: 'grpc',
-            service_name: xray.grpcServiceName || 'grpc',
+            service_name: grpcServiceName,
         };
     }
 
@@ -848,7 +893,7 @@ function generateV2rayJSON(user, nodes, routing) {
         if (node.type === 'xray') {
             if (!user.xrayUuid) return;
             const xray = node.xray || {};
-            const host = node.domain || node.ip;
+            const { host, port, backendPort, useNginxPathProxy } = getVlessPublicEndpoint(node, xray);
             const transport = xray.transport || 'tcp';
             const security = xray.security || 'reality';
             const tag = `${node.flag || ''} ${node.name}`.trim();
@@ -879,11 +924,16 @@ function generateV2rayJSON(user, nodes, routing) {
             }
 
             if (transport === 'ws') {
-                streamSettings.wsSettings = { path: xray.wsPath || '/', headers: xray.wsHost ? { Host: xray.wsHost } : {} };
+                const wsPath = useNginxPathProxy ? buildPortPrefixedPath(backendPort, xray.wsPath || '/') : (xray.wsPath || '/');
+                streamSettings.wsSettings = { path: wsPath, headers: xray.wsHost ? { Host: xray.wsHost } : {} };
             } else if (transport === 'grpc') {
-                streamSettings.grpcSettings = { serviceName: xray.grpcServiceName || 'grpc', multiMode: false };
+                const grpcServiceName = useNginxPathProxy
+                    ? buildPortPrefixedGrpcService(backendPort, xray.grpcServiceName || 'grpc')
+                    : (xray.grpcServiceName || 'grpc');
+                streamSettings.grpcSettings = { serviceName: grpcServiceName, multiMode: false };
             } else if (transport === 'xhttp') {
-                streamSettings.splithttpSettings = { path: xray.xhttpPath || '/', host: xray.xhttpHost || '' };
+                const xhttpPath = useNginxPathProxy ? buildPortPrefixedPath(backendPort, xray.xhttpPath || '/') : (xray.xhttpPath || '/');
+                streamSettings.splithttpSettings = { path: xhttpPath, host: xray.xhttpHost || '' };
             }
 
             const vnextUser = { id: user.xrayUuid, encryption: 'none' };
@@ -894,7 +944,7 @@ function generateV2rayJSON(user, nodes, routing) {
             outbounds.push({
                 tag,
                 protocol: 'vless',
-                settings: { vnext: [{ address: host, port: node.port || 443, users: [vnextUser] }] },
+                settings: { vnext: [{ address: host, port, users: [vnextUser] }] },
                 streamSettings,
             });
             allTags.push(tag);

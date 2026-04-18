@@ -57,8 +57,42 @@ cp docker.env.example .env
 nano .env  # Set your domain, email, and secrets
 docker compose up -d
 ```
+This source `docker-compose.yml` now starts the panel on `127.0.0.1:3000` (HTTP only). You must terminate TLS and proxy requests with your own host Nginx/Traefik/Caddy before the panel is accessible over HTTPS.
 
-**3. Open** `https://your-domain/panel`
+**3. Configure your host reverse proxy** to forward `https://your-domain` to `http://127.0.0.1:3000` (required for build-from-source Docker Compose installs).
+
+### Nginx installer for VLESS path routing (443 frontend)
+
+If you run Xray behind Nginx and want links to use path-based internal port routing (`/{port}/...`) on public `:443`, use:
+
+```bash
+sudo CERT_PATH=/etc/letsencrypt/live/example.com/fullchain.pem \
+     KEY_PATH=/etc/letsencrypt/live/example.com/privkey.pem \
+     ALLOWED_PORTS=2053,2083,8443 \
+     AUTO_FIX_PROJECT=1 \
+     bash ./scripts/install-nginx-vless-path-proxy.sh
+```
+
+What it configures:
+- Installs Nginx (if missing)
+- Stops conflicting host HTTP services (`caddy`, `apache2`, `httpd`) if present
+- Creates `/etc/nginx/conf.d/celerity-vless-path-proxy.conf`
+- Accepts any domain/IP host header (`server_name _`) for CDN compatibility
+- Routes `/{internalPort}/anytext` to `127.0.0.1:{internalPort}` after stripping `/{internalPort}`
+- Handles VLESS over `ws`, `grpc`, and `xhttp` through TLS `:443`
+- Auto-fixes project compatibility (`AUTO_FIX_PROJECT=1`, default):
+  - sets `.env` to `USE_CADDY=true` and `PORT=3000`
+  - patches `docker-compose.hub.yml` to use `127.0.0.1:3000:3000` instead of host `80/443`
+  - removes `greenlock.d` volume from `docker-compose.hub.yml` so host nginx is the only TLS terminator
+
+Security notes:
+- By default only ports in `ALLOWED_PORTS` are routable.
+- To allow all internal ports (not recommended), set `ALLOW_ALL_PORTS=1`.
+- If your nginx already has a default TLS vhost, set `REMOVE_DEFAULT_SITE=1` only when you explicitly want this installer to replace it.
+- This config intentionally accepts any Host header (`server_name _`) for CDN flexibility; if you do not need that, restrict allowed hosts in nginx and at the application layer.
+- Do **not** include panel/admin/internal service ports unless you intentionally want them exposed.
+
+**4. Open** `https://your-domain/panel`
 > Planning to manage the panel from AI assistants? See [MCP Setup Guide](docs/mcp-user-guide.md).
 
 **Required `.env` variables:**
