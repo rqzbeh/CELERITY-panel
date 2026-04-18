@@ -11,7 +11,9 @@ KEY_PATH="${KEY_PATH:-}"
 ALLOW_ALL_PORTS="${ALLOW_ALL_PORTS:-0}"
 ALLOWED_PORTS="${ALLOWED_PORTS:-443,8443}"
 REMOVE_DEFAULT_SITE="${REMOVE_DEFAULT_SITE:-0}"
+AUTO_FIX_PROJECT="${AUTO_FIX_PROJECT:-1}"
 CONF_PATH="/etc/nginx/conf.d/celerity-vless-path-proxy.conf"
+PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
 
 if [[ -z "${CERT_PATH}" || -z "${KEY_PATH}" ]]; then
   cat >&2 <<'EOF'
@@ -47,6 +49,81 @@ install_nginx() {
     echo "Unsupported package manager. Install nginx manually and re-run." >&2
     exit 1
   fi
+}
+
+disable_conflicting_host_services() {
+  local svc
+  for svc in caddy apache2 httpd; do
+    if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1; then
+      systemctl disable --now "${svc}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+set_env_key() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if [[ ! -f "${file}" ]]; then
+    return
+  fi
+
+  if grep -qE "^${key}=" "${file}"; then
+    sed -i "s#^${key}=.*#${key}=${value}#g" "${file}"
+  else
+    printf '\n%s=%s\n' "${key}" "${value}" >> "${file}"
+  fi
+}
+
+patch_hub_compose_for_nginx() {
+  local compose_file="$1"
+  [[ -f "${compose_file}" ]] || return 0
+
+  cp "${compose_file}" "${compose_file}.bak.$(date +%Y%m%d%H%M%S)"
+  python3 - <<'PY' "${compose_file}"
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+text = p.read_text(encoding="utf-8")
+
+# Replace host-exposed 80/443 with localhost 3000.
+text = re.sub(
+    r'^\s{4}ports:\n\s{6}- "80:80/tcp"\n\s{6}- "443:443/tcp"\n',
+    '    ports:\n      - "127.0.0.1:3000:3000/tcp"\n',
+    text,
+    flags=re.M
+)
+
+# Remove Greenlock volume (TLS handled by host nginx).
+text = re.sub(r'^\s{6}- \./greenlock\.d:/app/greenlock\.d\n', '', text, flags=re.M)
+
+# Force backend app to run in reverse-proxy mode.
+if 'USE_CADDY:' not in text:
+    text = re.sub(
+        r'(\n\s{6}REDIS_URL:[^\n]*\n)',
+        r'\1      USE_CADDY: "true"\n',
+        text
+    )
+if '\n      PORT:' not in text:
+    text = re.sub(
+        r'(\n\s{6}USE_CADDY:[^\n]*\n)',
+        r'\1      PORT: 3000\n',
+        text
+    )
+
+p.write_text(text, encoding="utf-8")
+PY
+}
+
+auto_fix_project_compat() {
+  if [[ "${AUTO_FIX_PROJECT}" != "1" ]]; then
+    return
+  fi
+
+  local env_file="${PROJECT_DIR}/.env"
+  set_env_key "${env_file}" "USE_CADDY" "true"
+  set_env_key "${env_file}" "PORT" "3000"
+
+  patch_hub_compose_for_nginx "${PROJECT_DIR}/docker-compose.hub.yml"
 }
 
 build_ports_map() {
@@ -164,6 +241,8 @@ EOF
 }
 
 install_nginx
+disable_conflicting_host_services
+auto_fix_project_compat
 write_config
 
 if [[ "${REMOVE_DEFAULT_SITE}" == "1" ]]; then
@@ -185,4 +264,5 @@ Current mode:
 IMPORTANT:
   - Subscription paths should look like /{internalPort}/...
   - Keep panel/admin ports out of ALLOWED_PORTS unless intentionally exposed.
+  - AUTO_FIX_PROJECT=${AUTO_FIX_PROJECT} updates .env and docker-compose.hub.yml for nginx-only mode.
 EOF
